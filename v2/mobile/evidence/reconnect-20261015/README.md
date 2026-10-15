@@ -28,3 +28,5 @@ short automated assertion runs. The test source provides exact state/command ass
 - [verified-TV-retains-originals-across-a-rotated-port-replacement-hardware-does-not](SIMULATED-verified-TV-retains-originals-across-a-rotated-port-replacement-hardware-does-not.mp4)
 
 No separate mobile lint script is configured; Svelte/TypeScript check and diff whitespace checks are used. Rust was unchanged. Desktop galleries are unchanged because no captured desktop screen changed.
+
+Final validation: **217 mobile tests passed, 0 failed**; mobile check reports 0 errors / 0 warnings, build succeeds, and test-file syntax plus diff whitespace checks pass. The unchanged base fails all three original new scenarios. No Rust code changed or local multi-platform Rust validation was performed. Parent SvelteKit generated config is absent in this isolated checkout and Vite prints that existing parent-config warning; mobile svelte-check itself reports no diagnostics.
