@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
@@ -38,6 +38,12 @@
   let showPaywall = $state(false);
   let loadGeneration = 0;
   let shownSerial = session.serial;
+  let shownConnection = session.generation;
+  let destroyed = false;
+  function valid(serial: string, connection: number) {
+    return !destroyed && session.isConnected && serial === session.serial && connection === session.generation;
+  }
+  function intentValid() { return valid(shownSerial, shownConnection); }
 
   // Stock-takeover confirm: set_default_launcher reports when the only way to
   // switch is disabling the active stock launcher — we ask before retrying.
@@ -105,8 +111,9 @@
   /// itself was read for the TV that is still connected.
   async function load(): Promise<boolean> {
     const serial = session.serial;
+    const connection = session.generation;
     const generation = ++loadGeneration;
-    if (!serial) {
+    if (!serial || !session.isConnected) {
       error = "No TV connected.";
       loading = false;
       return false;
@@ -118,7 +125,7 @@
       api.currentLauncher(serial),
       api.channelProviderDisabled(serial),
     ]);
-    if (generation !== loadGeneration || serial !== session.serial) return false;
+    if (generation !== loadGeneration || !valid(serial, connection)) return false;
     if (rows.status === "fulfilled") {
       launchers = rows.value;
       error = "";
@@ -141,47 +148,60 @@
   /// have landed (stock disabled with its helper left on, a switch that took
   /// a beat longer than the backend's poll), so the screen shows what the TV
   /// reports now rather than what the action hoped for (#157/#158).
-  async function reread(serial: string): Promise<boolean> {
-    if (serial !== session.serial) return false;
+  async function reread(serial: string, connection: number): Promise<boolean> {
+    if (!valid(serial, connection)) return false;
     progress = "Refreshing the launcher list";
     session.invalidateAll();
     return load();
   }
 
-  onMount(load);
-
   onDestroy(() => {
+    destroyed = true;
+    ++loadGeneration;
+    ++pickerGeneration;
     stopStorePoll();
     clearTimeout(toastTimer);
   });
 
-  // A different TV: nothing read from the previous one applies any more.
+  // A new connection invalidates all reads and pending intent, even at the same endpoint.
   $effect(() => {
     const serial = session.serial;
-    if (serial === shownSerial) return;
-    shownSerial = serial;
-    stopStorePoll();
-    storeOpened = null;
-    linkShown = null;
-    clearNote();
-    takeover = null;
-    disableConfirm = null;
-    stockConfirmOpen = false;
-    pickerGeneration += 1;
-    pickerOpen = false;
-    pickerPackages = [];
-    pickerSerial = "";
-    pickerLoading = false;
-    pickerError = "";
-    choice = null;
-    activity = "";
-    homeResult = null;
-    homeDiagnostics = [];
-    stockHoldsHomeFor = null;
-    launchers = [];
-    current = null;
-    channelDisabled = null;
-    void load();
+    const connection = session.generation;
+    void session.liveness;
+    untrack(() => {
+      shownConnection = connection;
+      shownSerial = serial;
+      ++loadGeneration;
+      busyPkg = "";
+      homeBusy = null;
+      progress = "";
+      toast = "";
+      showPaywall = false;
+      clearTimeout(toastTimer);
+      stopStorePoll();
+      storePollBusy = false;
+      storeOpened = null;
+      linkShown = null;
+      clearNote();
+      takeover = null;
+      disableConfirm = null;
+      stockConfirmOpen = false;
+      pickerGeneration += 1;
+      pickerOpen = false;
+      pickerPackages = [];
+      pickerSerial = "";
+      pickerLoading = false;
+      pickerError = "";
+      choice = null;
+      activity = "";
+      homeResult = null;
+      homeDiagnostics = [];
+      stockHoldsHomeFor = null;
+      launchers = [];
+      current = null;
+      channelDisabled = null;
+      void load();
+    });
   });
 
   const anyBusy = $derived(busyPkg !== "" || homeBusy !== null);
@@ -226,7 +246,8 @@
 
   async function setDefault(l: LauncherStatus, allowStockDisable = false) {
     const serial = session.serial;
-    if (anyBusy || !serial) return;
+    const connection = session.generation;
+    if (!intentValid() || anyBusy || !serial) return;
     const name = l.entry.name;
     busyPkg = l.entry.package;
     progress = "";
@@ -237,9 +258,9 @@
         serial,
         l.entry.package,
         allowStockDisable,
-        (msg) => (progress = msg),
+        (msg) => { if (valid(serial, connection)) progress = msg; },
       );
-      if (serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
       if (res.ok) {
         let text =
           res.strategy === "disable_stock_takeover"
@@ -256,6 +277,7 @@
         noteFailure(text, res.diagnostics ?? []);
       }
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) {
         locked = true;
         showPaywall = true;
@@ -264,8 +286,10 @@
         noteFailure(String(e));
       }
     } finally {
+      if (!valid(serial, connection)) return;
       // A locked call never reached the TV, so there is nothing to re-read.
-      if (!locked) await reread(serial);
+      if (!locked) await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
     }
@@ -274,28 +298,30 @@
   async function confirmTakeover() {
     const t = takeover;
     takeover = null;
-    if (!t) return;
+    if (!t || !intentValid()) return;
     const row = launchers.find((l) => l.entry.package === t.pkg);
-    if (row) await setDefault(row, true);
+    if (row && intentValid()) await setDefault(row, true);
   }
 
   async function doDisable(l: LauncherStatus) {
     disableConfirm = null;
     const serial = session.serial;
-    if (anyBusy || !serial) return;
+    const connection = session.generation;
+    if (!intentValid() || anyBusy || !serial) return;
     busyPkg = l.entry.package;
     progress = l.setup_helper ? "Turning off Google TV's setup helper" : "Disabling";
     clearNote();
     let locked = false;
     try {
       const res = await api.disableLauncher(serial, l.entry.package);
-      if (serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
       const text = res.ok
         ? res.message || `${l.entry.name} disabled.`
         : `Couldn't fully disable ${l.entry.name}: ${res.message.trim() || "failed"}`;
       showToast(text, res.ok ? "success" : "error");
       if (!res.ok) noteFailure(text);
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) {
         locked = true;
         showPaywall = true;
@@ -304,7 +330,9 @@
         noteFailure(String(e));
       }
     } finally {
-      if (!locked) await reread(serial);
+      if (!valid(serial, connection)) return;
+      if (!locked) await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
     }
@@ -312,15 +340,16 @@
 
   async function turnOffWraith() {
     const serial = session.serial;
+    const connection = session.generation;
     const row = wraith?.row;
-    if (anyBusy || !serial || !row) return;
+    if (!intentValid() || anyBusy || !serial || !row) return;
     busyPkg = row.entry.package;
     progress = "Turning off Google TV's setup helper";
     clearNote();
     let locked = false;
     try {
       const r = await api.disableSetupHelper(serial, row.entry.package);
-      if (serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
       if (r.ok) {
         showToast("Setup Wraith is off. Press Home on the TV to check it lands on your launcher.", "success");
       } else {
@@ -329,6 +358,7 @@
         noteFailure(text);
       }
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) {
         locked = true;
         showPaywall = true;
@@ -337,7 +367,9 @@
         noteFailure(String(e));
       }
     } finally {
-      if (!locked) await reread(serial);
+      if (!valid(serial, connection)) return;
+      if (!locked) await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
     }
@@ -345,8 +377,9 @@
 
   async function reenableWraith() {
     const serial = session.serial;
+    const connection = session.generation;
     const row = wraith?.row;
-    if (anyBusy || !serial || !row) return;
+    if (!intentValid() || anyBusy || !serial || !row) return;
     const pkg = row.entry.package;
     const prev = currentPkg;
     const prevName = prev ? nameOf(prev) : "";
@@ -355,8 +388,9 @@
     clearNote();
     try {
       const r = await api.enablePackage(serial, pkg);
-      if (serial !== session.serial) return;
-      const read = await reread(serial);
+      if (!valid(serial, connection)) return;
+      const read = await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       if (!r.ok) {
         const text = `Couldn't re-enable Setup Wraith: ${r.message.trim() || "failed"}`;
         showToast(text, "error");
@@ -374,8 +408,9 @@
         }
         progress = `Restoring ${prevName} as default`;
         const backRes = await api.setDefaultLauncher(serial, prev);
-        if (serial !== session.serial) return;
-        await reread(serial);
+        if (!valid(serial, connection)) return;
+        await reread(serial, connection);
+        if (!valid(serial, connection)) return;
         if (backRes.ok) {
           showToast(
             `Setup Wraith is back on. Android gave it the Home button, so ${prevName} was set as default again.`,
@@ -392,13 +427,15 @@
         showToast("Setup Wraith is back on.", "success");
       }
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) showPaywall = true;
       else {
         showToast(String(e), "error");
         noteFailure(String(e));
       }
-      await reread(serial);
+      await reread(serial, connection);
     } finally {
+      if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
     }
@@ -411,12 +448,12 @@
 
   /// The install happens on the TV, out of our sight, so look again every 5 s
   /// for a minute and stop as soon as the app shows up.
-  function startStorePoll(serial: string, pkg: string, name: string) {
+  function startStorePoll(serial: string, connection: number, pkg: string, name: string) {
     stopStorePoll();
     storeOpened = { serial, pkg, name, checking: true };
     const deadline = Date.now() + 60_000;
     storeTimer = setInterval(async () => {
-      if (serial !== session.serial) {
+      if (!valid(serial, connection)) {
         stopStorePoll();
         storeOpened = null;
         return;
@@ -431,9 +468,10 @@
       try {
         await load();
       } finally {
+      if (!valid(serial, connection)) return;
         storePollBusy = false;
       }
-      if (serial === session.serial && isInstalled(launchers, pkg)) {
+      if (valid(serial, connection) && isInstalled(launchers, pkg)) {
         stopStorePoll();
         storeOpened = null;
         showToast(`${name} is installed.`, "success");
@@ -443,19 +481,22 @@
 
   async function install(l: LauncherStatus) {
     const serial = session.serial;
-    if (anyBusy || !serial) return;
+    const connection = session.generation;
+    if (!intentValid() || anyBusy || !serial) return;
     busyPkg = l.entry.package;
     progress = "Opening the Play Store";
     stopStorePoll();
     storeOpened = null;
     try {
       const res = await api.openPlayStore(serial, l.entry.package);
-      if (serial !== session.serial) return;
-      if (res.ok) startStorePoll(serial, l.entry.package, l.entry.name);
+      if (!valid(serial, connection)) return;
+      if (res.ok) startStorePoll(serial, connection, l.entry.package, l.entry.name);
       else showToast(res.message.trim() || "Couldn't open the Play Store on the TV.", "error");
     } catch (e) {
+      if (!valid(serial, connection)) return;
       showToast(String(e), "error");
     } finally {
+      if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
     }
@@ -485,7 +526,8 @@
 
   async function loadPicker(force = false) {
     const serial = session.serial;
-    if (!serial) {
+    const connection = session.generation;
+    if (!serial || !session.isConnected) {
       pickerError = "No TV connected.";
       return;
     }
@@ -495,23 +537,27 @@
     pickerError = "";
     try {
       const rows = await api.listInstalledPackages(serial);
-      if (generation !== pickerGeneration || serial !== session.serial) return;
+      if (generation !== pickerGeneration || !valid(serial, connection)) return;
       pickerPackages = rows;
       pickerSerial = serial;
     } catch (e) {
-      if (generation !== pickerGeneration || serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
+      if (generation !== pickerGeneration || !valid(serial, connection)) return;
       pickerError = String(e);
     } finally {
+      if (!valid(serial, connection)) return;
       if (generation === pickerGeneration) pickerLoading = false;
     }
   }
 
   function openPicker() {
+    if (!intentValid()) return;
     pickerOpen = true;
     void loadPicker();
   }
 
   function pick(p: OtherPackage) {
+    if (!intentValid()) return;
     choice = p;
     pickerOpen = false;
     homeResult = null;
@@ -522,8 +568,9 @@
 
   async function setHomeFromPicker() {
     const serial = session.serial;
+    const connection = session.generation;
     const pkg = choice?.package;
-    if (anyBusy || !serial || !pkg) return;
+    if (!intentValid() || anyBusy || !serial || !pkg) return;
     homeBusy = "set";
     homeResult = null;
     homeDiagnostics = [];
@@ -531,13 +578,14 @@
     let locked = false;
     try {
       const r = await api.setHomeAny(serial, pkg, activity.trim() || null);
-      if (serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
       // The backend's sentence says exactly what Android did; `ok` is only
       // true once the TV confirmed the app holds Home.
       homeResult = { ok: r.ok, text: r.message };
       stockHoldsHomeFor = r.stock_holds_home ? pkg : null;
       homeDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) {
         locked = true;
         showPaywall = true;
@@ -545,7 +593,9 @@
         homeResult = { ok: false, text: String(e) };
       }
     } finally {
-      if (!locked) await reread(serial);
+      if (!valid(serial, connection)) return;
+      if (!locked) await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       homeBusy = null;
       progress = "";
     }
@@ -554,8 +604,9 @@
   async function disableStock(saveFirst: boolean) {
     stockConfirmOpen = false;
     const serial = session.serial;
+    const connection = session.generation;
     const pkg = choice?.package;
-    if (anyBusy || !serial || !pkg) return;
+    if (!intentValid() || anyBusy || !serial || !pkg) return;
     homeBusy = "stock";
     homeResult = null;
     homeDiagnostics = [];
@@ -563,8 +614,9 @@
       try {
         await api.saveSnapshot(serial, session.deviceLabel, "Before disabling the stock launcher");
       } catch (e) {
+      if (!valid(serial, connection)) return;
         if (isLocked(e)) showPaywall = true;
-        if (serial === session.serial) {
+        if (valid(serial, connection)) {
           homeResult = {
             ok: false,
             text: `The snapshot wasn't saved, so the stock launcher was left alone.${isLocked(e) ? "" : ` ${String(e)}`}`,
@@ -573,7 +625,7 @@
         homeBusy = null;
         return;
       }
-      if (serial !== session.serial) {
+      if (!valid(serial, connection)) {
         homeBusy = null;
         return;
       }
@@ -581,20 +633,23 @@
     const expectWraithOff = takeoverTurnsOffWraith;
     try {
       const r = await api.disableStockLauncher(serial, pkg);
-      if (serial !== session.serial) return;
+      if (!valid(serial, connection)) return;
       stockHoldsHomeFor = null;
-      const read = await reread(serial);
+      const read = await reread(serial, connection);
+      if (!valid(serial, connection)) return;
       const helperAfter = read ? (setupHelperView(launchers)?.state ?? null) : null;
       homeResult = { ok: r.ok, text: stockDisableMessage(r, pkg, expectWraithOff, helperAfter) };
       homeDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
     } catch (e) {
+      if (!valid(serial, connection)) return;
       if (isLocked(e)) {
         showPaywall = true;
       } else {
         homeResult = { ok: false, text: String(e) };
-        await reread(serial);
+        await reread(serial, connection);
       }
     } finally {
+      if (!valid(serial, connection)) return;
       homeBusy = null;
       progress = "";
     }

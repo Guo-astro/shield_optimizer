@@ -104,6 +104,17 @@ the notices, which covers no Gradle dependencies at all.
 
 ---
 
+## Reconnect safety follow-up (2026-10-15)
+
+Launcher invalidates reads, picker/confirmation intent, polling and action continuations on
+session generation or liveness changes, including reconnection to the same endpoint. The
+session generation is reactive so screens observe a reconnect even if its liveness transitions
+complete within one render. Tweaks keeps screensaver originals by normalized verified hardware
+ID, falling back to connection generation when identity is unavailable. Multi-setting writes
+stop before the next write if that connection changes. Already dispatched writes cannot be
+recalled. These changes have simulated browser coverage only, not phone/TV validation.
+See `evidence/reconnect-20261015/README.md` for reproducible tests and videos.
+
 ## 1. What this is
 A phone/tablet app (**Tauri 2 + Rust + Svelte 5**, in `v2/mobile/`) that drives an **Android TV
 over wireless ADB** — no PC. Debloat / optimize / launcher / tweaks / snapshots / remote, etc.

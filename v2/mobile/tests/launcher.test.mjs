@@ -115,7 +115,7 @@ test("source site links are offered only for http(s) URLs", () => {
 // ---- screen ----
 
 async function open(t, setup = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 } });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   if (setup.clock) await page.clock.install();
   await page.addInitScript((init) => {
@@ -372,4 +372,34 @@ test("after opening the Play Store the list re-reads until the launcher is insta
   await page.clock.runFor(5_100);
   await page.getByText("FLauncher is installed.").waitFor();
   assert.equal(await page.getByText(/Checking for FLauncher/).count(), 0);
+});
+
+test("same-endpoint reconnect cancels confirmations and late launcher results", async (t) => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY, { entry: { name: "Projectivy" } })], current: STOCK });
+  await page.evaluate(() => { window.handlers.set_default_launcher = () => new Promise(resolve => { window.finishOld = resolve; }); });
+  await page.getByRole("button", { name: "Set default", exact: true }).first().click();
+  await page.waitForFunction(() => !!window.finishOld);
+  await page.evaluate(async () => { await window.session.connect("A", 5555); window.finishOld({ ok: false, stock_takeover_available: true }); });
+  await page.waitForTimeout(150);
+  assert.equal(await page.getByRole("button", { name: "Disable stock & switch" }).count(), 0);
+  await page.evaluate(() => { window.handlers.set_default_launcher = () => ({ ok: false, stock_takeover_available: true }); });
+  await page.getByRole("button", { name: "Set default", exact: true }).first().click();
+  await page.getByRole("button", { name: "Disable stock & switch" }).waitFor();
+  await page.evaluate(async () => { await window.session.connect("A", 5555); });
+  await page.waitForTimeout(100);
+  assert.equal(await page.getByRole("button", { name: "Disable stock & switch" }).count(), 0);
+  assert.equal(await count(page, "set_default_launcher"), 2);
+});
+
+test("lost connection removes actionable rows and reconnect discards an old list reply", async (t) => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY, { entry: { name: "Projectivy" } })], current: STOCK });
+  await page.evaluate(() => { window.handlers.list_launchers = () => new Promise(resolve => { window.finishList = resolve; }); });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.waitForFunction(() => !!window.finishList);
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  await page.getByText("No TV connected.").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Set default", exact: true }).count(), 0);
+  await page.evaluate(async () => { delete window.handlers.list_launchers; window.launchers = []; await window.session.connect("A", 5555); window.finishList([{ installed: true, enabled: true, entry: { package: "stale.pkg", name: "STALE TV" } }]); });
+  await page.waitForTimeout(100);
+  assert.equal(await page.getByText("STALE TV", { exact: true }).count(), 0);
 });
