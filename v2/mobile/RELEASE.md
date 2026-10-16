@@ -248,7 +248,7 @@ branches; a missing postmerge feature-branch run must not be reported as a passi
 ### Preparation validation receipt (2026-10-16)
 
 On the release-preparation branch after merging `f7897c1`: 218 mobile browser/unit tests passed,
-10 APK-verifier tests passed, mobile check reported 0 errors / 0 warnings and build succeeded.
+13 APK-verifier tests passed, mobile check reported 0 errors / 0 warnings and build succeeded.
 The neutral paywall was inspected at 384×812. Notices regeneration inventoried 313 Cargo crates;
 Android/JVM declarations are listed separately without claiming full transitive resolution.
 The installed SDK apksigner rejected an unsigned synthetic archive through the CLI (exit 1,
