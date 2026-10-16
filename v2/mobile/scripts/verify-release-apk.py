@@ -9,7 +9,7 @@ import subprocess
 import zipfile
 
 
-def check_elf(data):
+def check_elf(data, abi=None):
     if data[:4] != b'\x7fELF' or len(data) < 64 or data[5] != 1:
         raise ValueError('Unsupported or malformed native ELF')
     if data[4] == 2:
@@ -22,6 +22,12 @@ def check_elf(data):
         minimum = 32
     else:
         raise ValueError('Unsupported ELF class')
+    architectures = {'arm64-v8a': (2, 183), 'x86_64': (2, 62),
+                     'armeabi-v7a': (1, 40), 'x86': (1, 3)}
+    header = (data[4], struct.unpack_from('<H', data, 18)[0])
+    if (abi is not None and architectures.get(abi) != header) or header not in architectures.values():
+        raise ValueError('ELF architecture does not match a supported Android ABI')
+    page_size = 16384 if data[4] == 2 else 4096
     if not count or size < minimum or offset + size * count > len(data):
         raise ValueError('Malformed ELF program headers')
     loads = 0
@@ -36,8 +42,8 @@ def check_elf(data):
         else:
             file_offset, address = struct.unpack_from('<II', data, start + 4)
             alignment = struct.unpack_from('<I', data, start + 28)[0]
-        if alignment < 16384 or alignment & (alignment - 1) or file_offset % 16384 != address % 16384:
-            raise ValueError('Native LOAD segment is not 16 KB aligned')
+        if alignment < page_size or alignment & (alignment - 1) or file_offset % page_size != address % page_size:
+            raise ValueError(f'Native LOAD segment is not {page_size // 1024} KB aligned')
     if not loads:
         raise ValueError('Native ELF has no LOAD segments')
 
@@ -71,14 +77,15 @@ def verify(apk, apksigner, zipalign, apkanalyzer, run=subprocess.run):
             raise ValueError('No packaged native libraries found')
         for name in native:
             try:
-                check_elf(archive.read(name))
+                check_elf(archive.read(name), name.split("/")[1])
             except (ValueError, struct.error) as error:
                 raise ValueError(f'{name}: {error}') from error
     return {'apk': apk.name, 'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(),
             'target_sdk': target, 'version_code': version, 'native_libraries': native,
-            'verified': ['signature', 'non-debuggable', 'application-id', 'zip-16kb', 'elf-16kb'],
+            'verified': ['signature', 'non-debuggable', 'application-id', 'zip-16kb', 'elf-load-alignment-by-abi'],
             'manual_gates': ['trusted signing fingerprint', 'versionCode newer than every uploaded track',
-                             'AAB/bundletool and Play checks', 'physical device matrix', 'store disclosures']}
+                             'AAB/bundletool and Play checks', 'GNU_RELRO layout/overlap compatibility',
+                             'actual 16 KB runtime validation', 'physical device matrix', 'store disclosures']}
 
 
 def main():

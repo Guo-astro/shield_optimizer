@@ -11,9 +11,10 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 
-def elf(alignment=16384, elf_class=2):
+def elf(alignment=16384, elf_class=2, machine=None):
     data = bytearray(128)
     data[:6] = b'\x7fELF' + bytes([elf_class, 1])
+    struct.pack_into('<H', data, 18, machine if machine is not None else (183 if elf_class == 2 else 40))
     if elf_class == 2:
         struct.pack_into('<Q', data, 32, 64)
         struct.pack_into('<HH', data, 54, 56, 1)
@@ -52,8 +53,32 @@ class ReleaseGate(unittest.TestCase):
         gate.check_elf(elf(elf_class=1))
         result = self.verify()
         self.assertEqual(result['version_code'], 1001)
+        self.assertIn('elf-load-alignment-by-abi', result['verified'])
+        self.assertIn('GNU_RELRO layout/overlap compatibility', result['manual_gates'])
+        self.assertIn('actual 16 KB runtime validation', result['manual_gates'])
         self.assertEqual(len(result['sha256']), 64)
         self.assertEqual(self.calls[0][:2], ['signer', 'verify'])
+
+    def test_universal_apk_accepts_4kb_32bit_libraries(self):
+        with zipfile.ZipFile(self.apk, 'a') as archive:
+            archive.writestr('lib/armeabi-v7a/arm.so', elf(4096, 1, 40))
+            archive.writestr('lib/x86/x86.so', elf(4096, 1, 3))
+            archive.writestr('lib/x86_64/x64.so', elf(16384, 2, 62))
+        self.assertEqual(len(self.verify()['native_libraries']), 4)
+
+    def test_each_64bit_architecture_still_rejects_4kb(self):
+        for abi, machine in [('arm64-v8a', 183), ('x86_64', 62)]:
+            with self.subTest(abi=abi):
+                self.write_apk(elf())
+                with zipfile.ZipFile(self.apk, 'a') as archive:
+                    archive.writestr(f'lib/{abi}/bad.so', elf(4096, 2, machine))
+                with self.assertRaises(ValueError):
+                    self.verify()
+
+    def test_abi_header_mismatch_is_rejected(self):
+        self.write_apk(elf(4096, 1, 40))
+        with self.assertRaises(ValueError):
+            self.verify()
 
     def test_unsigned_failure_stops_before_other_checks(self):
         def reject(args, **kwargs):

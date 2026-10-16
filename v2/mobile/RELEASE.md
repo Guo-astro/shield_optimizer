@@ -155,8 +155,9 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
 
 1. Play Console → Internal testing → create release → upload the AAB.
 2. Check the pre-launch report; `minSdk` is 24 and `targetSdk` 36.
-3. Data safety form: the app talks only to devices on the user's own LAN over wireless ADB; there
-   is no backend and no analytics. Keep that answer accurate if telemetry is ever added.
+3. Complete Data safety from the verified final artifact, actual data inventory and owner-approved
+   disclosures; see `DATA-INVENTORY.md`. Do not reuse preset LAN-only/no-backend/no-analytics
+   answers. Include user-initiated external navigation and review the resolved SDK graph.
 4. Promote internal → closed → production once a real device has been exercised end to end.
 
 ## Testing-candidate gates (feature freeze, 2026-10-16)
@@ -174,8 +175,12 @@ No purchase, trial or pricing policy is selected. Keep the existing feature set 
 - [ ] Choose a new, never-uploaded `versionCode` across all tracks and build the candidate locally.
 - [ ] Verify the APK with `python3 scripts/verify-release-apk.py candidate.apk`, using SDK tool
       paths via `--apksigner`, `--zipalign`, `--apkanalyzer` as needed. All missing tools, signature,
-      debug-certificate/debuggable, package-id, target/version, ZIP and native ELF alignment failures
-      reject the artifact. It never signs, installs or uploads. A successful check does not prove
+      debug-certificate/debuggable, package-id, target/version, ZIP and architecture-aware native ELF alignment failures
+      reject the artifact. ELF load segments require 16 KB alignment for arm64-v8a/x86_64;
+      valid 4 KB armeabi-v7a/x86 libraries are accepted, with ABI/header consistency checked.
+      The receipt certifies ELF LOAD alignment only, not full ELF/16 KB compatibility. It does
+      not validate GNU_RELRO layout or overlap; retain those checks (including NDK r27-and-earlier
+      hazards) and actual 16 KB runtime validation as separate gates. It never signs, installs or uploads. A successful check does not prove
       the signing fingerprint is the owner's, or that the versionCode exceeds Play's latest value.
 - [ ] For Play, separately verify the AAB signature, bundletool output and generated APKs, then
       Play's pre-launch report. The APK checker deliberately does not accept AABs.
