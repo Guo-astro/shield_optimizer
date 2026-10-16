@@ -170,16 +170,17 @@ appears in the Cargo inventory below with its upstream license text.
 
 Source: <https://github.com/cocool97/adb_client>
 
-### npm runtime dependencies
+### Bundled npm-origin code and assets
 
-Only these npm packages contribute code or assets to the shipped app; everything else in
-`package.json` is build-time tooling.
+These packages are the sources of bundled code/assets. Geist 1.7.2 is retained as checked-in
+WOFF2 assets with its license; the unused npm package is not needed to build the app.
+Other entries in `package.json` provide tooling, which can also contribute compiled runtime code.
 
 | Package | Version | License |
 | --- | --- | --- |
 | `svelte` | 5.56.4 | MIT |
 | `@tauri-apps/api` | 2.11.1 | Apache-2.0 OR MIT |
-| `geist` | 1.7.2 | SIL OFL 1.1 (see above) |
+| `geist` (checked-in WOFF2 assets only) | 1.7.2 | SIL OFL 1.1 (see above) |
 | `material-symbols` | 0.45.5 | Apache-2.0 (see above) |
 
 Svelte compiles into the app bundle; `@tauri-apps/api` ships as JavaScript. Both are used under
