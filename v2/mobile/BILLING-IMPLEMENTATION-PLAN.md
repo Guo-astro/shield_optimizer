@@ -8,6 +8,10 @@ PR169 remains a separate review. Nothing here authorizes a store submission or r
 
 - Free compatibility checks before purchase; one-time non-consumable Pro, intended US price $2.99.
 - No timed trial, subscription or recurring charge.
+- Complimentary Pro for existing Ko-fi supporters uses the normal Google Play one-time-product
+  promo redemption flow and the same verification/restore logic. No separate APK, client-only
+  unlock, hard-coded supporter key or alternate entitlement bypass. No codes issued or outreach
+  performed by this plan.
 - Optional pure support tips confer no app functionality, entitlement, digital item, badge,
   priority support or other digital benefit. External tips remain disabled with no URL until
   the owner approves a destination and applicable Play policy compliance is confirmed.
@@ -39,6 +43,29 @@ Persist before mutation; preserve journal/snapshots through downgrade; never aut
 on billing callbacks. Details and migration need separate review before implementation. Do not
 advertise universal undo until this gate is met. Scope does not promise to recover uninstalled
 third-party APKs or missing data.
+
+## Supporter promo redemption and later roadmap
+
+Plan Play one-time-product promo codes for owner-selected existing Ko-fi supporters. Eligibility,
+code availability, expiry, quotas and account requirements must be verified in the existing Play
+account against the official promo documentation before issuance. Do not invent numeric limits.
+Redeemed purchases must follow the same PURCHASED verification, idempotent delivery,
+acknowledgment and owned-purchase restore path; promo purchases may lack a normal order ID, so
+purchase tokens remain the processing key. Test redemption inside/outside the app, app installed
+later, already-owned Pro, expired/invalid/used codes, repeated restore and refund/revocation
+where applicable. Do not require supporters to buy again merely because a promo purchase lacks
+an order ID. No supporter list, promo code or private purchase data belongs in source control.
+Owner selection, code creation and distribution/outreach remain separate authorized actions.
+
+Keep the current repository for Android launch. Root `LICENSE` states all rights reserved and
+publishes source for transparency/review; source availability is not a permissive reuse license.
+No visibility, license or repository split is proposed or performed here. Native client code must
+never contain publisher credentials or private verification/signing secrets regardless of visibility.
+
+Record iOS as **post-Android launch** roadmap work, not this implementation: separately assess
+platform transport feasibility, App Store policy, StoreKit verification/restore and licensing,
+privacy and physical-device validation. Do not assume Android Play entitlements automatically
+transfer to Apple purchases or promise iOS feature parity/date before that assessment.
 
 ## Planned architecture
 
@@ -126,6 +153,7 @@ claimed complete until ownership is reverified. Do not promise lifetime offline 
 - One-time lifecycle: https://developer.android.com/google/play/billing/lifecycle/one-time
 - Notifications: https://developer.android.com/google/play/billing/rtdn-reference
 - Current product lookup: https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.productsv2/getproductpurchasev2
+- Promo reference (recheck in the account before issuance): https://support.google.com/googleplay/android-developer/answer/6321495
 - Payment/tip applicability: https://support.google.com/googleplay/android-developer/answer/9858738
 
 Check API/library versions and policy again when implementing. These references are technical
