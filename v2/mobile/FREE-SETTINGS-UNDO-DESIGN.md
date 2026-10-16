@@ -23,8 +23,14 @@ mutation is authorized by a Free undo. Expand later only through reviewed typed 
 This first slice cannot claim Free undo for every existing Tweaks action.
 
 - Pro remains required for a new screensaver change. The before-state must be durably recorded
-  BEFORE the first TV write. Free undo accepts record ID + expected record revision only: no
-  caller-provided setting, value, namespace, identity, path or shell expression.
+  BEFORE the first TV write. A Free preview request identifies a record/revision; confirmation
+  accepts only its native preview handle, never caller-provided settings, values, namespace,
+  identity, path or shell expressions. Record ID/revision alone never authorizes a write.
+- Every existing path that can touch either key must join the SAME native operation lock and
+  journal rules, or explicitly refuse those keys. This includes generic `write_setting`, snapshot
+  apply/settings-plan execution, performance/other wrappers and future driver call sites. Routing
+  only the new UI through a typed action is insufficient. An excluded snapshot/plan must be
+  rejected before ANY mutation, not halfway through applying unrelated settings.
 - The native backend obtains a fresh normalized verified hardware serial using its existing
   device-profile path. UI identity and host:port are insufficient. No hardware ID means covered
   journaled writes and undo fail closed; connection-generation fallback is not persistent identity.
@@ -61,8 +67,8 @@ No database or import/export endpoint; never load a caller-provided file. Do not
 schema or manufacture historical records from snapshots, cached UI values or old logs.
 
 A record contains: non-secret random record ID, monotonic revision, verified hardware ID,
-operation type `screensaver`, presence-tagged before-values, intended values, last checked
-post-values, per-step results and status (`Prepared`, `AppliedVerified`, `UndoPrepared`,
+operation type `screensaver`, presence-tagged before-values, immutable planned per-step/group post-values,
+checked readback results (diagnostic until exact plan equality is proven), per-step results and status (`Prepared`, `AppliedVerified`, `UndoPrepared`,
 `Undone`, `Unknown`). Timestamps are informational, never an entitlement/identity proof.
 
 Validate schema/version, identity, known operation, exact two-key set, value sizes/shapes,
@@ -92,14 +98,26 @@ Do not hold a lock and re-enter a driver method that acquires it again. This is 
 concurrency design prerequisite, not a capability asserted to exist today.
 
 For a Pro change: verify identity/read exact before-state; persist Prepared; execute the finite
-screen-saver transition plan; check command status AND read back; persist AppliedVerified with
-actual expected values. Plan multi-key ordering explicitly (including any temporary disable)
-and record it before I/O. A successful shell return alone is not a verified change.
+screen-saver transition plan; check command status AND read back. AppliedVerified requires EXACT equality to the pre-recorded
+planned post-state for BOTH keys, including unchanged keys and every intended intermediate
+state (such as temporary disable). Store the already planned values as expected provenance;
+never adopt arbitrary observed values as app-owned post-state. Any mismatch becomes conflict/
+Unknown, with no new undo entitlement. Plan multi-key ordering explicitly and record it before
+I/O. A successful shell return alone is not a verified change.
 
-For Free undo: load/validate record and revision; verify live hardware identity under the lease;
-read both current values; require exact equality to the recorded verified post-values. A mismatch
-or read failure returns conflict and performs NO write. After explicit fresh user confirmation,
-persist UndoPrepared, restore only the recorded two-key before-state in the reviewed safe order,
+For Free preview: load/validate record and revision; verify live hardware identity under the
+lease; read both current values and require exact equality to verified planned post-values.
+Native state retains a short-lived, single-use preview handle bound to record ID/revision,
+verified hardware ID, live native connection generation, full expected current state and exact
+restore/intermediate plan. The UI receives display information and that handle, not authority to
+change the plan. No journal credential or persistent signing key is created.
+
+For confirmation: resolve the handle natively; revalidate liveness, generation, identity, revision
+and BOTH expected values under the same lease. Expired, consumed, missing or reconnect-stale
+handles fail before any write; consume/invalidate the preview so retries need a fresh preview.
+A matching endpoint or record ID/revision does not save a stale confirmation. UI cleanup timing
+is not a security boundary. After explicit fresh user confirmation, persist UndoPrepared and
+restore only the native-preview-bound before-state in the reviewed safe order,
 check/read back and durably mark Undone. Repeated undo is a no-op after verifying completion, not
 another arbitrary write. Concurrent confirmations must lose the revision/operation lock race.
 
@@ -124,6 +142,10 @@ have guaranteed automatic Free undo. Preserve the record and explain the exact l
   and symlink/path escape all fail closed. No broad reset/cleanup can destroy retained evidence.
 - Repeated changes retain original before-state; repeated undo is idempotent; retries never apply
   a stale record. All grouped partial-step failures and crash windows are fault-injected.
+- Native generic-setting and snapshot/performance paths cannot bypass the shared lock/journal;
+  excluded plans fail before any write. A concurrent alternate path cannot relabel an external
+  change as the planned app state. Exact full-state and intermediate readback mismatch tests
+  must prove that arbitrary observed values never become AppliedVerified.
 - Pro setter remains gated; arbitrary setting/snapshot/app-permission operations remain gated.
   Existing free package recovery still works without journal, billing or Pro.
 - Installed before-component missing/unavailable is an explicit unsupported/manual case; do not
