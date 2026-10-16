@@ -20,7 +20,7 @@ const BASIC = "com.android.dreams.basic/com.android.dreams.basic.BasicDream";
 const VENDOR = "com.google.android.backdrop/.Backdrop";
 
 async function open(t, screen, options = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 } });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   await page.addInitScript((options) => {
     localStorage.clear();
@@ -214,4 +214,50 @@ test("More is titled More, lists Optimize, and no longer duplicates the Tweaks t
   assert.equal(await tools.filter({ hasText: "Snapshots" }).count(), 1);
   await tools.filter({ hasText: "Optimize" }).click();
   await page.getByRole("heading", { name: "Optimize" }).waitFor();
+});
+
+test("endpoint reuse never restores another TV's screensaver and interrupted writes stop", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  const card = page.locator('[data-tweak="screensaver"]');
+  await card.getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => window.tweaks.screensaver_enabled === "0");
+  await page.evaluate(async () => { window.tweaks.screensaver_components = "replacement/.Dream"; window.tweaks.screensaver_enabled = "1"; await window.session.connect("A", 5555); });
+  await card.getByText("replacement/.Dream", { exact: true }).first().waitFor();
+  assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
+  await page.evaluate(() => { window.handlers.write_setting = () => new Promise(resolve => { window.finishWrite = resolve; }); });
+  await card.getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => !!window.finishWrite);
+  const before = (await writes(page, "write_setting")).length;
+  await page.evaluate(async () => { await window.session.connect("A", 5555); window.finishWrite({ ok: true, message: "done" }); });
+  await page.waitForTimeout(150);
+  assert.equal((await writes(page, "write_setting")).length, before);
+});
+
+test("verified TV retains originals across a rotated port, replacement hardware does not", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.evaluate(async () => {
+    window.hardware = "verified-A";
+    window.handlers.list_devices = () => [{ id: 1, serial: `${window.session.host}:${window.session.connectPort}`, status: "device", device_type: "shield", properties: { serial_number: window.hardware } }];
+    await window.session.connect("A", 5555);
+  });
+  const card = page.locator('[data-tweak="screensaver"]');
+  await card.getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => window.tweaks.screensaver_enabled === "0");
+  await page.evaluate(async () => { await window.session.connect("A", 4321); });
+  await card.getByRole("button", { name: /Restore previous/ }).click();
+  await page.waitForFunction(() => window.tweaks.screensaver_components === "com.google.android.backdrop/.Backdrop" && window.tweaks.screensaver_enabled === "1");
+  await page.evaluate(async () => { window.hardware = "verified-B"; window.tweaks.screensaver_components = "different/.Dream"; await window.session.connect("A", 4321); });
+  await card.getByText("different/.Dream", { exact: true }).first().waitFor();
+  assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
+});
+
+test("a reconnect between screensaver writes prevents the second write", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.locator('[data-tweak="screensaver"]').waitFor();
+  await page.evaluate(() => { window.handlers.write_setting = () => new Promise(resolve => { window.finishWrite = resolve; }); });
+  await page.locator('[data-tweak="screensaver"]').getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => !!window.finishWrite);
+  await page.evaluate(async () => { await window.session.connect("A", 5555); window.finishWrite({ ok: true, message: "done" }); });
+  await page.waitForTimeout(100);
+  assert.equal((await writes(page, "write_setting")).length, 1);
 });
