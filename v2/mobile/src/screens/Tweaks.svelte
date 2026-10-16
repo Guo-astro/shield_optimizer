@@ -1,6 +1,6 @@
 <script lang="ts" module>
   // The screensaver that was set the first time Tweaks read each TV in this
-  // app session, keyed by serial. Module-level so leaving and re-opening the
+  // app session, keyed by verified hardware id or connection generation. Module-level so leaving and re-opening the
   // tab doesn't recapture a value this screen itself wrote, which would make
   // "Restore previous" restore nothing.
   const screensaverOriginals = new Map<
@@ -12,6 +12,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
+  import { normalizeHardwareId } from "../lib/identity";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type {
@@ -78,6 +79,8 @@
   async function load() {
     const serial = session.serial;
     const connection = session.generation;
+    const hardwareId = normalizeHardwareId(session.connectedDevice?.properties?.serial_number);
+    const originalKey = hardwareId ? `hardware:${hardwareId}` : `connection:${connection}`;
     const generation = ++loadGeneration;
     if (!serial || !session.isConnected) {
       noDevice = "No live TV connection.";
@@ -101,13 +104,13 @@
       const value = t.value;
       tweaks = value;
       tweaksError = "";
-      if (!screensaverOriginals.has(serial)) {
-        screensaverOriginals.set(serial, {
+      if (!screensaverOriginals.has(originalKey)) {
+        screensaverOriginals.set(originalKey, {
           components: value.screensaver_components ?? null,
           enabled: value.screensaver_enabled ?? null,
         });
       }
-      screensaverOriginal = screensaverOriginals.get(serial) ?? null;
+      screensaverOriginal = screensaverOriginals.get(originalKey) ?? null;
     } else {
       tweaksError = String(t.reason);
     }
@@ -225,9 +228,11 @@
     keys: string[],
     value: string,
   ): (targetSerial: string) => Promise<WriteResult> {
+    const connection = session.generation;
     return async (targetSerial: string) => {
       let last: WriteResult = { ok: true, message: "ok" };
       for (const key of keys) {
+        if (connection !== session.generation || !session.isConnected || targetSerial !== session.serial) throw new Error("TV connection changed.");
         last = await api.writeSetting(targetSerial, namespace, key, value);
         if (!last.ok) break;
       }
@@ -501,6 +506,7 @@
   // Off turns the flag off too. A refused flag write stops before the
   // component changes, so Daydream is never left enabled with no component.
   function writeScreensaver(key: string, component: string, enabled: string, successMsg: string) {
+    const connection = session.generation;
     apply(
       key,
       async (target) => {
@@ -511,6 +517,7 @@
             message: `The TV refused the screensaver switch (${flag.message.trim() || "no reason given"}). The screensaver was left unchanged.`,
           };
         }
+        if (connection !== session.generation || !session.isConnected || target !== session.serial) throw new Error("TV connection changed.");
         return api.writeSetting(target, "secure", "screensaver_components", component);
       },
       successMsg,
