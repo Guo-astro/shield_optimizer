@@ -24,6 +24,7 @@ use shield_optimizer_core::commands::{
     shell, snapshot, tuning,
 };
 use shield_optimizer_core::license::Entitlement;
+use tauri::Manager;
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
 /// subdirectory).
@@ -206,6 +207,12 @@ pub fn run() {
         .manage(state)
         .manage(log_control)
         .invoke_handler(invoke_handler())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                let state = app.state::<AppState>();
+                tauri::async_runtime::block_on(install::stop_adb_server_on_quit(state.inner()));
+            }
+        });
 }

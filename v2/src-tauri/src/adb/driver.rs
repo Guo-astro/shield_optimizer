@@ -94,6 +94,8 @@ impl SubprocessAdb {
 
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        super::note_server_start(&stderr);
+        super::note_server_start(&stdout);
         let exit_code = output.status.code();
         if session::is_recording() {
             session::record(adb_session_line(
@@ -424,6 +426,9 @@ impl AdbDriver for SubprocessAdb {
         super::pin_working_directory(&mut cmd);
         let started = Instant::now();
         let result = collect_bounded_shell(cmd, SHELL_TIMEOUT).await;
+        if let Ok(out) = &result {
+            super::note_server_start(&out.stderr);
+        }
         if session::is_recording() {
             session::record(bounded_session_line(
                 serial,
@@ -490,6 +495,7 @@ impl AdbDriver for SubprocessAdb {
                 return Err(e);
             }
         };
+        super::note_server_start(&String::from_utf8_lossy(&output.stderr));
         if session::is_recording() {
             session::record(adb_session_line(
                 args,
@@ -960,6 +966,21 @@ mod tests {
         assert!(
             matches!(result, Err(AdbError::NonZeroExit { code: Some(7), stderr }) if stderr == "failure")
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_call_that_starts_the_daemon_marks_it_as_ours() {
+        let driver = SubprocessAdb::new(PathBuf::from("/bin/sh"));
+        driver
+            .raw(&[
+                "-c",
+                "printf '* daemon not running; starting now at tcp:5037\\n\
+                 * daemon started successfully\\n' >&2",
+            ])
+            .await
+            .unwrap();
+        assert!(crate::adb::server_started_here());
     }
 
     #[cfg(unix)]

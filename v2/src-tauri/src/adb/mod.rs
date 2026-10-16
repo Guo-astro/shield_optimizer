@@ -8,7 +8,31 @@ pub mod driver;
 pub mod install;
 pub mod scan;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tokio::process::Command;
+
+/// Whether an adb call from this app started the adb server daemon. The
+/// daemon outlives its client, so quitting stops it only when this is set —
+/// a server some other tool (Android Studio, scrcpy, a terminal) already had
+/// running is left alone.
+static SERVER_STARTED_HERE: AtomicBool = AtomicBool::new(false);
+
+/// adb prints this when the command it ran had to start the server first —
+/// including after it replaced a server of a different version.
+fn reports_server_start(output: &str) -> bool {
+    output.contains("daemon started successfully")
+}
+
+pub(crate) fn note_server_start(output: &str) {
+    if reports_server_start(output) {
+        SERVER_STARTED_HERE.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn server_started_here() -> bool {
+    SERVER_STARTED_HERE.load(Ordering::Relaxed)
+}
 
 /// Suppress the console window Windows flashes when a GUI process spawns a
 /// console program (adb, route, …). Without this, every adb call from the app
@@ -33,7 +57,8 @@ pub(crate) fn hide_console_window(cmd: &mut Command) {
 /// Pin every adb subprocess to a stable working directory.
 ///
 /// A child process inherits its parent's cwd, and `adb start-server` forks a
-/// daemon that outlives this app entirely. When the app is launched from a
+/// daemon that can outlive this app (one that was already running is left up
+/// on quit, and a force-quit skips cleanup). When the app is launched from a
 /// mounted DMG or with a removable volume as its cwd, that daemon goes on
 /// holding a `/Volumes/...` path after the window is closed — which on macOS
 /// keeps re-triggering the "would like to access files on a removable volume"
@@ -62,3 +87,25 @@ pub use shield_optimizer_core::adb::{
     AppUsage, DisplayMode, FileEntry, MdnsService, RamInfo, RemoteInputSession, StorageInfo,
     MDNS_SERVICE_CONNECT, MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_successful_daemon_start_counts_as_ours() {
+        assert!(reports_server_start(
+            "* daemon not running; starting now at tcp:5037\n* daemon started successfully\n"
+        ));
+        assert!(reports_server_start(
+            "adb server version (40) doesn't match this client (41); killing...\n\
+             * daemon started successfully\n"
+        ));
+        assert!(!reports_server_start(
+            "* daemon not running; starting now at tcp:5037\n\
+             could not read ok from ADB Server\n* failed to start daemon\n"
+        ));
+        assert!(!reports_server_start("List of devices attached\n"));
+        assert!(!reports_server_start(""));
+    }
+}

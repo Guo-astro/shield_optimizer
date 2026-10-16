@@ -28,6 +28,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- Quitting the app now stops the adb server it started. The daemon used to keep running after the window closed and held every network device's connection open, so the TV went on receiving adb traffic from a closed app. An adb server that was already running before the app (Android Studio, scrcpy, a terminal) is left alone.
 - Launcher source pages remain available for installed and current-default launchers. Projectivy links to its official GitHub releases; opening the page never uninstalls or changes the current launcher (#161).
 
 ## v2-2.3.1 — 2026-10-04
