@@ -262,6 +262,30 @@ test("a reconnect between screensaver writes prevents the second write", async (
   assert.equal((await writes(page, "write_setting")).length, 1);
 });
 
+test("current gap: Pro loss blocks restoring an app-changed screensaver even with the original known", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.evaluate(() => {
+    window.handlers.write_setting = (args) => {
+      if (!window.session.isPro) throw "LOCKED:tweaks_write";
+      window.tweaks[args.key] = args.value || null;
+      return { ok: true, message: "done" };
+    };
+  });
+  const card = page.locator('[data-tweak="screensaver"]');
+  await card.getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === "Off");
+  await page.evaluate(() => { window.session.entitlement = "free"; });
+  await card.getByRole("button", { name: /Restore previous/ }).click();
+  await page.getByRole("heading", { name: /Unlock ATV Optimizer Pro/ }).waitFor();
+  assert.equal(await page.evaluate(() => window.tweaks.screensaver_enabled), "0");
+  assert.equal(await page.evaluate(() => window.tweaks.screensaver_components), null);
+  assert.equal(await page.evaluate(() => window.session.entitlement), "free");
+  const calls = await writes(page, "write_setting");
+  assert.equal(calls.length, 3, "two initial writes, then a denied restore flag write only");
+  assert.equal(calls[2].key, "screensaver_enabled");
+  assert.equal(calls[2].value, "1");
+});
+
 test("Free users retain emergency recovery without an unlock or payment", async (t) => {
   const page = await open(t, "more");
   await page.evaluate(() => { window.handlers.panic_recovery = () => ({ restored: ["com.example.app"], failed: [], message: "Package recovery completed" }); });
