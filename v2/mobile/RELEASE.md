@@ -220,3 +220,32 @@ Check current rules again before submission:
 
 For local-network access, SDK36 and SDK37 have different requirements; do not add/request a
 future permission speculatively: https://developer.android.com/privacy-and-security/local-network-permission
+
+## Open Shield issues at the 2026-10-16 release audit
+
+This is a dated triage snapshot, not a claim that an open issue is resolved. Re-read the tracker
+before cutting a candidate; close only after its actual acceptance evidence is reviewed.
+
+| Issue | Release disposition / exact remaining evidence |
+|---|---|
+| [#93 Saved-TV discovery/reconnect](https://github.com/bryanroscoe/shield_optimizer/issues/93) | Physical gate: Shield without mDNS, rotated Google TV port, changed address, cached identity/name isolation and honest reconnect results. Browser coverage does not close this. |
+| [#105 Restart/lifecycle report](https://github.com/bryanroscoe/shield_optimizer/issues/105) | Physical gate: distinguish Home/background, Back, Recents, recreation and process death. Do not claim restored live state or replay mutations from browser reconstruction. |
+| [#123 Glance/Daydream](https://github.com/bryanroscoe/shield_optimizer/issues/123) | Current screensaver controls are not proof that the reporter's server-delivered Glance variant is covered. Obtain exact package/device behavior and reporter confirmation; retain vendor restore/reconnect tests. |
+| [#161 Launcher sources/default](https://github.com/bryanroscoe/shield_optimizer/issues/161) | Desktop source-site work merged in PR165; mobile parity includes source links. Confirm the requested installed/current-default case and release availability; do not reimplement or auto-close. |
+| [#162 Logcat](https://github.com/bryanroscoe/shield_optimizer/issues/162) | Desktop Logs merged in PR166. Confirm requested filtering/live-display acceptance and release availability; it is not a reason to add mobile features during this freeze. |
+
+PR167 reconnect safety was merged into `mobile-parity-pass` at
+`f7897c1292d702fdfad1b77c3193312a641475b2` after independent review and six passing PR checks.
+Its integration does not clear the physical gates above. Release-preparation PR169 includes that
+ancestry by a normal merge. The existing test workflow triggers pushes to `main`, not feature
+branches; a missing postmerge feature-branch run must not be reported as a passing run.
+
+### Preparation validation receipt (2026-10-16)
+
+On the release-preparation branch after merging `f7897c1`: 218 mobile browser/unit tests passed,
+10 APK-verifier tests passed, mobile check reported 0 errors / 0 warnings and build succeeded.
+The neutral paywall was inspected at 384×812. Notices regeneration inventoried 313 Cargo crates;
+Android/JVM declarations are listed separately without claiming full transitive resolution.
+The installed SDK apksigner rejected an unsigned synthetic archive through the CLI (exit 1,
+no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
+release artifact or Android runtime was validated. This receipt is not release authorization.
