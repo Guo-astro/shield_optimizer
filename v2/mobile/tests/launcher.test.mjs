@@ -403,3 +403,34 @@ test("lost connection removes actionable rows and reconnect discards an old list
   await page.waitForTimeout(100);
   assert.equal(await page.getByText("STALE TV", { exact: true }).count(), 0);
 });
+
+test("old snapshot completion cannot unlock a newer Home action after reconnect", async (t) => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY)], current: PROJECTIVY });
+  await page.getByRole("button", { name: /Advanced: set another app as Home/ }).click();
+  const choose = async () => {
+    await page.getByRole("button", { name: "Choose an app", exact: true }).click();
+    await page.getByRole("button", { name: /Choose Projectivy/ }).click();
+  };
+  await choose();
+  await page.evaluate(() => {
+    window.handlers.save_snapshot = () => new Promise(resolve => { window.completeOldSnapshot = resolve; });
+    window.handlers.set_home_any = () => new Promise(resolve => { window.completeNewHome = resolve; });
+  });
+  await page.getByRole("button", { name: /Disable stock launcher/ }).click();
+  await page.getByRole("button", { name: /Save snapshot first/ }).click();
+  await page.waitForFunction(() => !!window.completeOldSnapshot);
+  await page.evaluate(async () => { await window.session.connect("A", 5555); });
+  await choose();
+  const setHome = page.locator("button.primary.adv-action");
+  await setHome.click();
+  await page.waitForFunction(() => !!window.completeNewHome);
+  assert.equal(await setHome.isDisabled(), true);
+  await page.evaluate(() => { window.completeOldSnapshot({ ok: true }); });
+  await page.waitForTimeout(100);
+  assert.equal(await setHome.isDisabled(), true, "old snapshot must not release the current action lock");
+  assert.equal(await count(page, "disable_stock_launcher"), 0);
+  assert.equal(await count(page, "set_home_any"), 1);
+  await page.evaluate(() => { window.completeNewHome({ ok: true, message: "New action finished" }); });
+  await page.waitForFunction(() => document.querySelector('.adv-result')?.textContent.includes("New action finished"));
+  assert.equal(await setHome.isDisabled(), false);
+});

@@ -625,10 +625,7 @@
         homeBusy = null;
         return;
       }
-      if (!valid(serial, connection)) {
-        homeBusy = null;
-        return;
-      }
+      if (!valid(serial, connection)) return;
     }
     const expectWraithOff = takeoverTurnsOffWraith;
     try {
