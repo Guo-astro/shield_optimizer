@@ -106,6 +106,11 @@ test("Turning the hooks back on is free; turning them off opens the paywall", as
   assert.deepEqual(await writes(page, "enable_package"), [{ serial: "A:5555", package: HOOKS }]);
   await hooks.getByRole("button", { name: "Off", exact: true }).click();
   await page.getByRole("heading", { name: /Unlock/ }).waitFor();
+  assert.equal(await page.getByText("Additional tools for managing your TV.", { exact: true }).count(), 1);
+  if (process.env.RELEASE_SCREENSHOT) {
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: process.env.RELEASE_SCREENSHOT });
+  }
   assert.equal(await page.evaluate(() => window.hooks), "enabled");
 });
 

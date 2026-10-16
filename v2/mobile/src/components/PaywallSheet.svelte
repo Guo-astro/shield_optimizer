@@ -48,7 +48,7 @@
       <div class="paywall-header">
         <span class="logo"><span class="msr">bolt</span></span>
         <h2>Unlock ATV Optimizer Pro</h2>
-        <p class="paywall-lede">One payment · every future update.</p>
+        <p class="paywall-lede">Additional tools for managing your TV.</p>
       </div>
       <div class="paywall-features">
         {#each features as f (f.title)}

@@ -18,8 +18,11 @@ building and uploading is still a local, manual step.
 
 ## 1. Create the upload keystore (one time, then keep it forever)
 
-An Android package's signing identity is permanent: a key change means a new listing. Generate the
-key once, back it up in the password manager **and** offline, and never commit it.
+Coordinate signing identity and backup with the owner before any creation. Distinguish the app
+signing key from a Play upload key: Play App Signing supports upload-key reset and specific
+app-signing-key upgrade procedures. Do not assume replacing a local key preserves sideload
+updates. Keep credentials out of Git. The following is reference documentation, not authorization
+to generate a key.
 
 ```
 keytool -genkeypair -v \
@@ -156,16 +159,64 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
    is no backend and no analytics. Keep that answer accurate if telemetry is ever added.
 4. Promote internal → closed → production once a real device has been exercised end to end.
 
-## Not done yet — read before promising a release date
+## Testing-candidate gates (feature freeze, 2026-10-16)
 
-- **SPAKE2 pairing is missing.** `adb_client` implements legacy network debugging (`:5555`) but not
-  the Android 11+ pairing-code handshake, so a Google TV device that has never been paired from a
-  PC cannot be onboarded from the phone alone. Clean-room SPAKE2 is queued; see
-  `HANDOFF.md` and `TRANSPORT-LICENSING-RESEARCH.md`.
-- **SAF import/export is missing.** Backups and snapshots stay in app-private storage; there is no
-  Storage Access Framework picker, so a user cannot move a bundle off the phone.
-- **Licensing / Pro entitlement** is not release-ready — the current unlock path is a development
-  key, not signed validation. See `LICENSING.md` for the current status.
-- **No release automation.** There is no mobile tag namespace and no signed-build job; step 5 is
-  manual. an APK/AAB CI job is not set up yet; it needs
-  (SDK + NDK setup, the four Rust targets, keystore secrets).
+This is a preparation checklist, not approval to create credentials, upload or install a build.
+No purchase, trial or pricing policy is selected. Keep the existing feature set frozen.
+
+- [ ] Integrate the independently reviewed reconnect fix (PR167) into the chosen candidate.
+- [ ] Record exact commit, lockfiles, SDK/NDK/JDK versions and selected ABIs.
+- [ ] Run host Rust fmt/clippy/tests, mobile `npm test`, check and build. Host CI is not an Android build.
+- [ ] Resolve and review the Android release runtime dependency graph and its notices (see
+      `ANDROID-DEPENDENCIES.md`); notices for declaration sites are not a complete resolved graph.
+- [ ] Confirm signing-key ownership and durable custody through the owner. Do not generate keys
+      merely to make a build pass. Existing Gradle config can emit an unsigned release when absent.
+- [ ] Choose a new, never-uploaded `versionCode` across all tracks and build the candidate locally.
+- [ ] Verify the APK with `python3 scripts/verify-release-apk.py candidate.apk`, using SDK tool
+      paths via `--apksigner`, `--zipalign`, `--apkanalyzer` as needed. All missing tools, signature,
+      debug-certificate/debuggable, package-id, target/version, ZIP and native ELF alignment failures
+      reject the artifact. It never signs, installs or uploads. A successful check does not prove
+      the signing fingerprint is the owner's, or that the versionCode exceeds Play's latest value.
+- [ ] For Play, separately verify the AAB signature, bundletool output and generated APKs, then
+      Play's pre-launch report. The APK checker deliberately does not accept AABs.
+- [ ] Run on an Android 16 KB page-size environment; static alignment checks are not runtime tests.
+- [ ] Perform the physical matrix in `PAIRING-PLAN.md` and `LIFECYCLE-EVIDENCE.md`: Shield legacy
+      debugging; fresh Google TV code pairing; wrong code; rotated port; replaced endpoint;
+      denied/unavailable discovery; reconnect; Home/background/Back/Recents; recreation/process
+      death; fresh install and upgrade; restore/undo; free and legitimately licensed Pro behavior.
+      Preserve #93 and #105 until their actual acceptance evidence exists.
+- [ ] Review release disclosures, risk copy, accessibility, support contact and listing assets.
+      `DATA-INVENTORY.md` is a code-grounded draft, not a published privacy policy.
+- [ ] Owner selects distribution and monetization. No Play purchase/restore or self-service trial
+      exists. Do not claim that offline key entry is store purchase restoration or that expiring
+      manually issued licenses constitute a self-service trial. The paywall uses neutral feature copy; approve actual purchase terms before public sale.
+- [ ] Obtain the account-specific testing/verification requirements from the actual store account;
+      no account status or production-access eligibility has been verified here.
+
+### Implemented, not fully physically validated
+
+Android 11+ SPAKE2 code pairing is implemented in `src-tauri/src/wireless_adb.rs` and the vendored
+transport. Signed Ed25519 offline licensing, persistence and debug-only development keys are
+implemented; see `LICENSING.md`. The old claims that these implementations were missing were stale.
+Neither implementation establishes current phone/TV end-to-end readiness.
+
+### Still missing or unresolved
+
+SAF import/export, mobile release automation, verified signed APK/AAB evidence, complete resolved
+Android dependency notices, privacy/store disclosures, and a selected commerce channel remain open.
+The preflight-tools workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
+it does not build/sign an APK, validate the native Android transport, or publish anything.
+
+### Current external requirements to verify at submission
+
+The configuration targets API36 (the mobile requirement effective August 31, 2026), with minSdk24.
+Check current rules again before submission:
+
+- https://support.google.com/googleplay/android-developer/answer/11926878
+- https://developer.android.com/guide/practices/page-sizes
+- https://developer.android.com/google/play/billing/integrate
+- https://support.google.com/googleplay/android-developer/answer/9858738
+- https://support.google.com/googleplay/android-developer/answer/10144311
+
+For local-network access, SDK36 and SDK37 have different requirements; do not add/request a
+future permission speculatively: https://developer.android.com/privacy-and-security/local-network-permission
