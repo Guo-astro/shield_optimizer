@@ -14,7 +14,7 @@ AndroidX Browser dependency. It is not a resolved Gradle dependency report.
 | ADB plugin | androidx.core:core-ktx:1.13.1 |
 | ADB plugin | org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
 | Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0; Material:1.7.0 |
-| Tauri Android | com.fasterxml.jackson.core:jackson-databind:2.15.3; com.fasterxml.jackson.datatype:jackson-datatype-json-org:2.15.3 |
+| Tauri Android | com.fasterxml.jackson.core:jackson-databind:2.15.3 |
 | Opener | androidx.browser:browser:1.8.0; androidx.core:core-ktx:1.9.0; Jackson Databind:2.15.3 |
 
 All listed libraries declare Apache-2.0 licensing. Official project sources:
@@ -32,3 +32,14 @@ upstream NOTICE, including transitive Kotlin/Jackson dependencies; preserve any 
 Reconcile selected versions with this declaration inventory and regenerate notices. This final
 resolved-graph/license-text gate remains OPEN; it cannot be cleared by the declaration table.
 No Gradle dependency or package version is changed by this preparation.
+
+## Locked published-crate evidence
+
+The cached `tauri-2.11.2.crate` archive SHA-256 is
+`437404997acf375d85f1177afa7e11bb971f274ed6a7b83a2a3e339015f4cc28`, exactly matching
+`v2/Cargo.lock`. Its archived `tauri-2.11.2/mobile/android/build.gradle.kts` SHA-256 is
+`aab1b0ecb929ea70b33ad42d7df55c185a3485f9609ec998047232b45df76a4d`; line 43 declares
+`com.fasterxml.jackson.core:jackson-databind:2.15.3`. The local extracted file is byte-identical.
+It does NOT declare jackson-datatype-json-org. A declaration seen in a newer cached Tauri version
+must not be attributed to this locked package. This receipt verifies declarations, not Gradle
+transitive resolution or packaged contents.

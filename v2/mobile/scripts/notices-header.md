@@ -21,7 +21,7 @@ Regenerate this document with `mobile/scripts/gen-notices.sh` after any dependen
 The application declares AndroidX WebKit 1.14.0, AppCompat 1.7.1, Activity KTX 1.10.1,
 Lifecycle Process 2.10.0 and Material Components 1.12.0. The ADB plugin declares AndroidX
 Core KTX 1.13.1 and kotlinx-coroutines-android 1.10.2. Tauri Android declares older Core KTX,
-AppCompat and Material versions plus Jackson Databind 2.15.3 and Jackson datatype-json-org 2.15.3.
+AppCompat and Material versions plus Jackson Databind 2.15.3.
 The opener plugin 2.5.4 declares **AndroidX Browser 1.8.0**, Core KTX 1.9.0 and Jackson Databind
 2.15.3. These components use Apache License 2.0 (AndroidX, Material, Jackson) or Apache License
 2.0 (kotlinx.coroutines); retain upstream notices and applicable license texts with the resolved
