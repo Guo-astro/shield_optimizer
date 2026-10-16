@@ -117,7 +117,8 @@ The approved product direction is documented separately in PR170: free compatibi
 $2.99 one-time Pro, no timed trial, optional benefit-free tips and normal Play promos for existing
 supporters. This slice does not configure any of those products or change current gates.
 
-Local evidence: 450 shared-core tests and strict core Clippy pass; mobile full suite 223/223
-plus the subsequently added cancellation regression and targeted Free-recovery UI check pass.
+Local evidence: 450 shared-core tests and strict core Clippy pass; integrated mobile full suite 224/224
+(including cancellation and Free-recovery UI checks) passes.
 Mobile check reports 0 errors / 0 warnings; build, Rust formatting and diff checks pass. These are
-Mac host/mock/browser results, not Android transport or purchase-validation evidence.
+Mac host/mock/browser results, not Android transport or purchase-validation evidence. The branch
+preserves merged release-preparation ancestry `7fe0e6a` through normal merge `a75605c`.

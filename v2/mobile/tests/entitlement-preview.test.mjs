@@ -44,7 +44,7 @@ test("cancel and errors never create access; acknowledgment cannot precede verif
   }
 });
 test("simulated UI keeps recovery usable through pending/error/revocation", async (t) => {
-  const page = await browser.newPage(); t.after(() => page.close()); await page.goto(origin);
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(process.env.ENTITLEMENT_VIDEO_DIR ? { recordVideo: { dir: process.env.ENTITLEMENT_VIDEO_DIR, size: { width: 384, height: 812 } } } : {}) }); t.after(() => page.close()); await page.goto(origin);
   await page.evaluate(async () => {
     const { mount } = await import("/node_modules/svelte/src/index-client.js");
     const Harness = (await import("/tests/helpers/EntitlementHarness.svelte")).default;
@@ -54,8 +54,14 @@ test("simulated UI keeps recovery usable through pending/error/revocation", asyn
   });
   await page.getByRole("button", { name: "Simulate Pro purchase" }).click(); await page.evaluate(() => window.update({ type: "pending", request: 1 }));
   assert.equal(await page.getByRole("button", { name: "Simulate Pro purchase" }).isDisabled(), true);
+  if (process.env.ENTITLEMENT_VIDEO_DIR) {
+    await page.screenshot({ path: "/tmp/shield-entitlement-preview.png" });
+    await page.waitForTimeout(1000);
+  }
   for (const event of [null, { type: "error", request: 1 }, { type: "revoked" }]) {
-    if (event) await page.evaluate(e => window.update(e), event); await page.getByRole("button", { name: "Free recovery" }).click();
+    if (event) await page.evaluate(e => window.update(e), event);
+    if (process.env.ENTITLEMENT_VIDEO_DIR) await page.waitForTimeout(1000);
+    await page.getByRole("button", { name: "Free recovery" }).click();
   }
   assert.equal(await page.evaluate(() => window.recovered), 3);
   assert.equal(await page.getByRole("button", { name: "Support tips unavailable" }).isDisabled(), true);
