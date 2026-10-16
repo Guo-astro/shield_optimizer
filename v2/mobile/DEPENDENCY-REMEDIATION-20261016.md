@@ -30,12 +30,14 @@ Kit 2.70.3 still declares cookie ^0.6.0; fixed cookie >=0.7.0 is outside that ra
 an override without a separate compatibility review. These are dev/build dependencies and this
 app ships a static SPA (`ssr=false`), not a Node/SvelteKit cookie-serving backend. This limits the
 observed exposure; it is not proof of safety for every build input or future server deployment.
+The production-filtered desktop audit is zero. The affected Kit import is server-side.
 Monitor the upstream range and re-audit before release.
 
 ## Validation and typography
 
-Mobile/desktop clean installs, checks and ordinary builds pass. The mobile suite passes before
-integrating newer reviewed mobile ancestry; the final draft PR records the integrated count.
+Mobile/desktop clean installs, checks and ordinary builds pass. After preserving merged mobile
+head `ff7d2e1` through normal merge `d120b8c`, the integrated mobile suite passes 224/224.
+All 13 inherited release-verifier tests pass. All 26 esbuild platform lock entries are retained.
 Desktop real-component launcher and Optimize safety tests pass against simulated devices.
 
 The before/after mobile screenshot is byte-identical at 384x812; Geist, Geist Mono and Material
