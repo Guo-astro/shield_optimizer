@@ -285,3 +285,15 @@ test("current gap: Pro loss blocks restoring an app-changed screensaver even wit
   assert.equal(calls[2].key, "screensaver_enabled");
   assert.equal(calls[2].value, "1");
 });
+
+test("Free users retain emergency recovery without an unlock or payment", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(() => { window.handlers.panic_recovery = () => ({ restored: ["com.example.app"], failed: [], message: "Package recovery completed" }); });
+  await page.getByRole("button", { name: /Emergency recovery/ }).click();
+  await page.getByRole("button", { name: "Re-enable all", exact: true }).click();
+  await page.getByText("Package recovery completed", { exact: true }).first().waitFor();
+  assert.equal(await page.getByRole("heading", { name: /Unlock ATV/ }).count(), 0);
+  assert.equal(await page.evaluate(() => window.session.entitlement), "free");
+  assert.deepEqual(await writes(page, "panic_recovery"), [{ serial: "A:5555" }]);
+  assert.equal((await writes(page, "activate_license")).length, 0);
+});
