@@ -172,28 +172,6 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     Ok(RestartResult { ok, message })
 }
 
-/// Upper bound on how long quitting waits for `adb kill-server`. It normally
-/// returns in milliseconds; a wedged daemon must not keep the app from exiting.
-const QUIT_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Stop the adb server when the app quits, if this app started it. Otherwise
-/// the daemon lingers after the window closes and keeps every network device's
-/// connection open — the TV goes on seeing adb traffic from a closed app.
-pub async fn stop_adb_server_on_quit(state: &AppState) {
-    if crate::adb::server_started_here() {
-        stop_adb_server(state).await;
-    }
-}
-
-async fn stop_adb_server(state: &AppState) {
-    let stop = async { state.adb_snapshot().await.raw(&["kill-server"]).await };
-    match tokio::time::timeout(QUIT_STOP_TIMEOUT, stop).await {
-        Ok(Ok(_)) => tracing::info!("adb server stopped on quit"),
-        Ok(Err(e)) => tracing::warn!(error = %e, "adb kill-server on quit failed"),
-        Err(_) => tracing::warn!("adb kill-server on quit timed out"),
-    }
-}
-
 /// `install_adb` — download Google's platform-tools archive, extract into the
 /// OS app-data dir, and swap the live driver so the next `list_devices` call
 /// uses the freshly-installed binary. Matches v1's auto-download flow.
@@ -224,18 +202,6 @@ pub async fn install_adb(state: State<'_, AppState>) -> Result<InstallResult, St
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
-
-    #[tokio::test]
-    async fn stopping_on_quit_kills_the_server_and_tolerates_failure() {
-        let mock = MockAdb::default();
-        let calls = mock.raw_log();
-        stop_adb_server(&state_with(mock)).await;
-        assert_eq!(calls.lock().unwrap().as_slice(), ["kill-server"]);
-
-        // No daemon left to kill: quitting must still finish quietly.
-        let failing = MockAdb::default().on_raw_err("kill-server", "cannot connect to daemon");
-        stop_adb_server(&state_with(failing)).await;
-    }
 
     #[tokio::test(start_paused = true)]
     async fn restart_adb_reports_failure_when_network_reconnect_fails() {

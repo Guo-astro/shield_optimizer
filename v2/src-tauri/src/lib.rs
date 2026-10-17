@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use adb::SubprocessAdb;
+use commands::quit::{self, AdbQuitControl};
 use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
@@ -93,6 +94,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         install::adb_status,
         install::install_adb,
         install::restart_adb,
+        quit::get_stop_adb_on_quit,
+        quit::set_stop_adb_on_quit,
         scan::scan_network,
         launcher::list_launchers,
         launcher::current_launcher,
@@ -206,13 +209,24 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(state)
         .manage(log_control)
+        .manage(AdbQuitControl::default())
         .invoke_handler(invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // An update restart arrives as this exit code, ahead of `Exit`.
+            tauri::RunEvent::ExitRequested {
+                code: Some(tauri::RESTART_EXIT_CODE),
+                ..
+            } => app.state::<AdbQuitControl>().note_restart(),
+            tauri::RunEvent::Exit => {
                 let state = app.state::<AppState>();
-                tauri::async_runtime::block_on(install::stop_adb_server_on_quit(state.inner()));
+                let control = app.state::<AdbQuitControl>();
+                tauri::async_runtime::block_on(quit::stop_adb_server_on_quit(
+                    state.inner(),
+                    control.inner(),
+                ));
             }
+            _ => {}
         });
 }

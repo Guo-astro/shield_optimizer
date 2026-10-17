@@ -242,6 +242,14 @@ export interface RestartResult {
   message: string;
 }
 
+/// "Stop ADB when quitting" as the quit path will read it. `generation` goes
+/// up with every applied change; a change sent from an older one may be
+/// refused, and the reply is always the setting as it now stands.
+export interface StopAdbOnQuit {
+  enabled: boolean;
+  generation: number;
+}
+
 export interface SnapshotFile {
   path: string;
   filename: string;

@@ -14,6 +14,7 @@
     "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",
     "test:device-list-rows": "node tests/device-list-rows.mjs",
+    "test:stop-adb-on-quit": "node tests/stop-adb-on-quit.mjs",
     "test:release-notes": "node tests/release-notes.mjs",
     "test:version-compare": "node tests/version-compare.mjs",
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",

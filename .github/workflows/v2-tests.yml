@@ -132,6 +132,12 @@ jobs:
         working-directory: v2
         run: npm run test:device-list-rows
 
+      # Stopping adb on quit disconnects every tool on the computer, so the
+      # checkbox may only show what the native side confirmed.
+      - name: Stop ADB when quitting
+        working-directory: v2
+        run: npm run test:stop-adb-on-quit
+
       # Release notes are remote Markdown from the updater manifest: they must
       # render before an update installs, and must never become markup.
       - name: Release notes parser

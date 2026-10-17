@@ -14,6 +14,22 @@ export function setAutoUpdate(enabled: boolean): void {
   }
 }
 
+const STOP_ADB_ON_QUIT_KEY = "shieldopt.stopAdbOnQuit";
+
+// Opt-in: stopping the adb server also disconnects every other tool using it.
+// Written only once the native side has confirmed a change, and handed back to
+// it on launch, since the native setting starts off with every run.
+export function getStopAdbOnQuit(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(STOP_ADB_ON_QUIT_KEY) === "true";
+}
+
+export function setStopAdbOnQuit(enabled: boolean): void {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(STOP_ADB_ON_QUIT_KEY, String(enabled));
+  }
+}
+
 const REMOTE_COMPAT_KEY = "shieldopt.remoteForceShell";
 
 /// When true, the Remote tab skips the fast scrcpy channel and uses the slow

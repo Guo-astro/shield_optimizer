@@ -163,6 +163,7 @@ function demoDevices(): Device[] {
 }
 
 let debugLogging = false;
+let stopAdbOnQuit = { enabled: false, generation: 0 };
 const LOG_DIR = "/Users/you/Library/Application Support/ShieldOptimizer/logs";
 
 /// Stand-in for the real `collect_diagnostics`, in the same shape: host facts,
@@ -491,6 +492,18 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "get_stop_adb_on_quit":
+      return stopAdbOnQuit;
+    case "set_stop_adb_on_quit":
+      if (demoFlag("stopAdbOnQuitFails")) throw "demo: the setting could not be changed";
+      // Another change lands first, so this one arrives from an outdated view.
+      if (demoFlag("stopAdbOnQuitRaced")) {
+        stopAdbOnQuit = { ...stopAdbOnQuit, generation: stopAdbOnQuit.generation + 1 };
+      }
+      if (!args.enabled || args.generation === stopAdbOnQuit.generation) {
+        stopAdbOnQuit = { enabled: Boolean(args.enabled), generation: stopAdbOnQuit.generation + 1 };
+      }
+      return stopAdbOnQuit;
     case "plugin:app|version":
       // Tests stand in for a specific installed build to walk an upgrade
       // sequence; everything else sees the real version.
