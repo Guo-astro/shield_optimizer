@@ -177,7 +177,19 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 /// uses the freshly-installed binary. Matches v1's auto-download flow.
 #[tauri::command]
 pub async fn install_adb(state: State<'_, AppState>) -> Result<InstallResult, String> {
-    match install_platform_tools().await {
+    install_with(state.inner(), install_platform_tools).await
+}
+
+pub(crate) async fn install_with<F, Fut>(
+    state: &AppState,
+    installer: F,
+) -> Result<InstallResult, String>
+where
+    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
+    Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
+{
+    let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
+    match installer(Arc::clone(&operation)).await {
         Ok(path) => {
             // A managed install outranks everything discovery would otherwise
             // fall back to, so the memoized answer is now stale.
