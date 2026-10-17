@@ -16,12 +16,24 @@ export const stopOnQuit = $state({
 });
 
 // Every applied change raises the native generation, so the reply carrying
-// the highest one is the newest state, whatever order replies arrive in.
+// the highest one is the newest state.
 let newest = 0;
-let reading: Promise<void> | null = null;
+// Changes asked for so far. A reply can only confirm the setting when no change
+// was asked for after its own request: until that change answers, the native
+// side may already be past what the reply says.
+let changes = 0;
+// One call at a time, so the native side sees and answers them in the order
+// they were made.
+let queue: Promise<unknown> = Promise.resolve();
 
-function adopt(next: StopAdbOnQuit) {
-  if (next.generation < newest) return;
+function inTurn<T>(call: () => Promise<T>): Promise<T> {
+  const turn = queue.then(call);
+  queue = turn.catch(() => {});
+  return turn;
+}
+
+function adopt(next: StopAdbOnQuit, asked: number) {
+  if (asked !== changes || next.generation < newest) return;
   newest = next.generation;
   stopOnQuit.setting = next;
   setStopAdbOnQuit(next.enabled);
@@ -29,46 +41,47 @@ function adopt(next: StopAdbOnQuit) {
 
 async function read() {
   stopOnQuit.pending++;
+  let asked = changes;
   try {
-    let current = await api.stopAdbOnQuit();
+    let current = await inTurn(() => api.stopAdbOnQuit());
     // The native setting starts off with every launch; hand the saved choice
     // back the first time this run is read.
-    if (current.generation === 0 && getStopAdbOnQuit()) {
-      current = await api.setStopAdbOnQuit(true, current.generation);
+    if (current.generation === 0 && getStopAdbOnQuit() && asked === changes) {
+      asked = ++changes;
+      stopOnQuit.setting = null;
+      current = await inTurn(() => api.setStopAdbOnQuit(true, 0));
     }
-    adopt(current);
+    adopt(current, asked);
   } catch (e) {
-    stopOnQuit.setting = null;
-    stopOnQuit.error = `Couldn't read Stop ADB when quitting, so it may still be on: ${e}`;
+    // A change asked for since then answers for itself.
+    if (asked === changes) {
+      stopOnQuit.setting = null;
+      stopOnQuit.error = `Couldn't read Stop ADB when quitting, so it may still be on: ${e}`;
+    }
   } finally {
     stopOnQuit.pending--;
   }
 }
 
-function readOnce(): Promise<void> {
-  reading ??= read().finally(() => {
-    reading = null;
-  });
-  return reading;
-}
-
 export function refreshStopOnQuit(): Promise<void> {
   stopOnQuit.error = "";
-  return readOnce();
+  return read();
 }
 
 export async function toggleStopOnQuit() {
   const from = stopOnQuit.setting;
   if (!from) return;
+  const asked = ++changes;
   stopOnQuit.setting = null;
   stopOnQuit.error = "";
   stopOnQuit.pending++;
   try {
-    adopt(await api.setStopAdbOnQuit(!from.enabled, from.generation));
+    adopt(await inTurn(() => api.setStopAdbOnQuit(!from.enabled, from.generation)), asked);
   } catch (e) {
     stopOnQuit.error = `Couldn't change Stop ADB when quitting: ${e}`;
-    // The change may or may not have landed, so ask where it stands.
-    await readOnce();
+    // The change may or may not have landed. A new read, queued behind it,
+    // says where it stands.
+    await read();
   } finally {
     stopOnQuit.pending--;
   }

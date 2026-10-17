@@ -202,8 +202,9 @@ pub enum ServerStop {
     Stopped,
     /// `kill-server` could not be started or exited nonzero.
     Failed(String),
-    /// `kill-server` did not finish in time. It was killed and reaped, so it
-    /// cannot stop a server later, but whether it already had is unknown.
+    /// `kill-server` did not finish in time. The driver tries to end it so it
+    /// cannot stop a server later, but may not be able to confirm that, and
+    /// whether the server had already stopped is unknown.
     Unknown,
     /// Not attempted, for the reason given.
     Skipped(String),

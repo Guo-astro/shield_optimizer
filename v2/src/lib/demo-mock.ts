@@ -533,6 +533,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       if (!args.enabled || args.generation === current.generation) {
         current = storeNativeStopAdbOnQuit({ enabled: Boolean(args.enabled), generation: current.generation + 1 });
       }
+      // The change landed, but its reply never makes it back.
+      if (demoFlag("stopAdbOnQuitReplyFails")) throw "demo: the reply was lost";
       return current;
     }
     case "plugin:app|version":

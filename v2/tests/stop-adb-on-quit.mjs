@@ -4,9 +4,10 @@
 // after a read fails, it reads unknown; a change that fails or loses a race
 // leaves the box where the setting really is; and a late reply, even one
 // asked for by a Devices page that has since closed, can't replace a newer
-// one on screen or in the saved choice. The native setting outlives a page
-// change and a webview reload, starts off with every launch, and gets the
-// saved choice back on the first read.
+// one on screen or in the saved choice. Requests go out one at a time, and a
+// reply to one made before a change can't confirm the setting. The
+// native setting outlives a page change and a webview reload, starts off with
+// every launch, and gets the saved choice back on the first read.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,6 +62,13 @@ async function exercise({ browser, base }) {
   };
   const held = () => page.evaluate(() => window.__demoHeldReplies.count());
   const release = (which) => page.evaluate((w) => window.__demoHeldReplies.release(w), which);
+  const native = () =>
+    page.evaluate(() => JSON.parse(sessionStorage.getItem("shieldopt.demo.native.stopAdbOnQuit") ?? "null"));
+  const landed = (enabled) =>
+    page.waitForFunction(
+      (on) => JSON.parse(sessionStorage.getItem("shieldopt.demo.native.stopAdbOnQuit") ?? "null")?.enabled === on,
+      enabled,
+    );
   const relaunch = async () => {
     await page.evaluate(() => sessionStorage.removeItem("shieldopt.demo.native.stopAdbOnQuit"));
     await page.reload({ waitUntil: "networkidle" });
@@ -154,28 +162,64 @@ async function exercise({ browser, base }) {
   assert.equal(await held(), 1, "the On request has been answered natively but not delivered");
   await remount();
   assert.deepEqual(await shown(), { checked: false, unknown: true, disabled: true }, "a change on its way is unknown");
-  // The new page's read sees the On that landed natively.
-  await release("newest");
+  assert.equal(await held(), 1, "and the new page's read waits behind it");
+  // The old page's reply arrives after that page has closed, and still counts.
+  await release("oldest");
   await confirmed();
-  assert.equal(await box.isChecked(), true, "the new page shows the On that landed");
-  // Turned off on the new page, and that reply arrives.
+  assert.equal(await box.isChecked(), true, "the On from the closed page lands");
+  assert.equal(await saved(), "true");
+  await page.waitForFunction(() => window.__demoHeldReplies.count() === 1);
+  // Turned off on the new page before its read answers.
   await box.click();
-  await release("newest");
+  await release("oldest");
+  await landed(false);
+  assert.deepEqual(await shown(), { checked: false, unknown: true, disabled: true }, "the read's On is out of date");
+  await release("oldest");
   await confirmed();
   assert.equal(await box.isChecked(), false);
-  assert.equal(await saved(), "false");
-  // Only now does the old page's reply arrive.
-  await release("oldest");
+  assert.equal(await saved(), "false", "and only the newest choice is saved");
   assert.equal(await held(), 0);
-  await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
-  assert.equal(await box.isChecked(), false, "a late reply cannot turn the box back on");
-  assert.equal(await saved(), "false", "or save the older On");
   await flag("stopAdbOnQuitHeld", false);
   await relaunch();
   assert.equal(await box.isChecked(), false, "so the next launch keeps the stop off");
 
+  // A read asked for before a change answers after the change has landed. It
+  // still says Off, but the change made that out of date.
+  await flag("stopAdbOnQuitHeld", true);
+  await remount();
+  assert.equal(await held(), 1, "the new page's read is waiting");
+  assert.deepEqual(await shown(), { checked: false, unknown: false, disabled: false });
+  await box.click();
+  await release("oldest");
+  await landed(true);
+  assert.deepEqual(await shown(), { checked: false, unknown: true, disabled: true }, "an older Off cannot confirm the setting");
+  await release("oldest");
+  await confirmed();
+  assert.equal(await box.isChecked(), true, "the change's own reply does");
+  assert.equal(await saved(), "true");
+
+  // The same, but the change lands and its reply fails: the box asks again
+  // after the change rather than trusting the older read.
+  await remount();
+  await flag("stopAdbOnQuitReplyFails", true);
+  await box.click();
+  await release("oldest");
+  await landed(false);
+  assert.equal((await shown()).unknown, true);
+  await release("oldest");
+  await page.waitForFunction(() => window.__demoHeldReplies.count() === 1);
+  assert.deepEqual(await shown(), { checked: false, unknown: true, disabled: true }, "still unknown until the new read answers");
+  assert.match(await problem.innerText(), /Couldn't change Stop ADB when quitting/);
+  await release("oldest");
+  await confirmed();
+  assert.equal(await box.isChecked(), false, "which finds the Off that landed");
+  assert.deepEqual(await native(), { enabled: false, generation: 2 });
+  assert.equal(await saved(), "false");
+  await flag("stopAdbOnQuitReplyFails", false);
+  await flag("stopAdbOnQuitHeld", false);
+
   console.log(
-    "Stop ADB when quitting passed: the box only shows confirmed changes and reads unknown until it has one, a failed or outdated change never reads off while the stop is on, a late reply from a closed page can't bring back an older choice, and the saved choice comes back on relaunch.",
+    "Stop ADB when quitting passed: the box only shows confirmed changes and reads unknown until it has one, a failed or outdated change never reads off while the stop is on, a late reply from a closed page or a read older than a change can't bring back an older choice, and the saved choice comes back on relaunch.",
   );
 }
 

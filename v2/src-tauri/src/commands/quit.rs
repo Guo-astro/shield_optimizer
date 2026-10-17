@@ -140,7 +140,7 @@ pub async fn stop_adb_server_on_quit(state: &AppState, control: &AdbQuitControl)
     match outcome {
         QuitStop::Ran(ServerStop::Stopped) => tracing::info!("adb server stopped on quit"),
         QuitStop::Ran(ServerStop::Unknown) => tracing::warn!(
-            "adb kill-server did not finish on quit and was ended; the adb server may or may not have stopped"
+            "adb kill-server did not finish in time on quit; the adb server may or may not have stopped"
         ),
         QuitStop::Ran(ServerStop::Failed(error)) => tracing::warn!(
             %error,
