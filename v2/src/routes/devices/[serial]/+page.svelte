@@ -58,11 +58,12 @@
   import RemoteTab from "$lib/components/RemoteTab.svelte";
   import OptimizeTab from "$lib/components/OptimizeTab.svelte";
   import MediaTab from "$lib/components/MediaTab.svelte";
+  import LogsTab from "$lib/components/LogsTab.svelte";
   import ShellTab from "$lib/components/ShellTab.svelte";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell";
+  type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell" | "logs";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -2101,6 +2102,7 @@
       { id: "remote", label: "Remote", far: false },
       { id: "files", label: "Files", far: false },
       { id: "media", label: "Playback", far: false },
+      { id: "logs", label: "Logs", far: false },
       { id: "shell", label: "Shell", far: true },
     ] as t (t.id)}
       <button
@@ -2654,19 +2656,6 @@
                     >
                       {busy ? "Opening…" : "Open Play Store on TV"}
                     </button>
-                    <!-- The Play Store button drives the TV's own store, which
-                         is no help for a launcher that store doesn't carry. This
-                         opens the launcher's official page here instead; it
-                         downloads and installs nothing. -->
-                    {#if l.entry.source_url}
-                      <button
-                        class="small-action subtle launcher-get"
-                        onclick={() => openInBrowser(l.entry.source_url ?? "")}
-                        data-tip="Opens the developer's page in your browser, for launchers the TV's Play Store doesn't carry"
-                        data-tip-align="end"
-                        aria-label="Open the developer's page for {l.entry.name} in your browser"
-                      ><Icon name="open_in_new" size={14} /> <span>Source site</span></button>
-                    {/if}
                   {:else}
                     {#if !l.enabled}
                       <button
@@ -2709,6 +2698,15 @@
                         title="Disabling the launcher you're currently using would leave the TV with no Home screen. Set another launcher as default first."
                       >Current default</span>
                     {/if}
+                  {/if}
+                  {#if l.entry.source_url}
+                    <button
+                      class="small-action subtle launcher-get"
+                      onclick={() => openInBrowser(l.entry.source_url ?? "")}
+                      data-tip="Opens the developer's page in your browser. Nothing is downloaded, uninstalled, or changed on the TV."
+                      data-tip-align="end"
+                      aria-label="Open the developer's page for {l.entry.name} in your browser"
+                    ><Icon name="open_in_new" size={14} /> <span>Source site</span></button>
                   {/if}
                 </div>
               </li>
@@ -3516,6 +3514,11 @@
       <MediaTab {serial} resetToken={mediaResetToken} active={activeTab === "media"} />
     </div>
   {/if}
+  {#if activeTab === "logs"}
+    {#key `${serial}:${pageEpoch}`}
+      <LogsTab {serial} resetToken={pageEpoch} active={activeTab === "logs"} />
+    {/key}
+  {/if}
   {#if visited.shell}
     <div hidden={activeTab !== "shell"}>
       <ShellTab
@@ -4019,7 +4022,7 @@
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--border);
     padding-bottom: 0;
-    /* Twelve tabs do not always fit. Scrolling the strip is the honest
+    /* Thirteen tabs do not always fit. Scrolling the strip is the honest
        failure: wrapping "Install APK" onto two lines makes one tab twice the
        height of its neighbours and shoves the underline off the baseline. */
     overflow-x: auto;

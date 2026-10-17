@@ -12,6 +12,7 @@ pub mod input;
 pub mod launcher;
 pub mod license;
 pub mod loader;
+pub mod logcat;
 pub mod optimize;
 pub mod reboot;
 pub mod recovery;

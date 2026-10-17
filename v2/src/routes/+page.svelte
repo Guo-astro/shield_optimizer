@@ -8,6 +8,7 @@
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
+  import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
   import { openContextMenu, type MenuItem } from "$lib/contextmenu";
 
   let devices = $state<Device[]>([]);
@@ -582,6 +583,14 @@
     connectInput?.focus();
   }
 
+  function clickStopOnQuit(e: MouseEvent) {
+    // Undo the click's own tick at once; the box moves only when the reply
+    // says the setting did. (preventDefault would restore it only after the
+    // event, which can land after a fast reply and leave the box wrong.)
+    (e.currentTarget as HTMLInputElement).checked = stopOnQuit.setting?.enabled ?? false;
+    void toggleStopOnQuit();
+  }
+
   async function restartAdb() {
     if (!confirm("Restart the ADB server? All current device connections will reconnect.")) return;
     restartBusy = true;
@@ -681,6 +690,7 @@
 
   onMount(() => {
     void bootDiscovery();
+    void refreshStopOnQuit();
     return () => {
       pairWaitToken++;
       reattachToken++;
@@ -730,6 +740,19 @@
   <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
+  <label class="quit-toggle" title="Run adb kill-server when this app quits">
+    <input
+      type="checkbox"
+      checked={stopOnQuit.setting?.enabled ?? false}
+      indeterminate={stopOnQuit.setting === null}
+      disabled={stopOnQuit.setting === null}
+      onclick={clickStopOnQuit}
+    />
+    Stop ADB when quitting
+    {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
+      <span class="quit-checking">checking…</span>
+    {/if}
+  </label>
   <button onclick={reportAll} disabled={reportBusy || adbMissing} title="Run a health report against every connected device">
     {reportBusy ? "Reporting…" : "Report All"}
   </button>
@@ -752,6 +775,21 @@
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
+  {/if}
+  {#if stopOnQuit.setting?.enabled}
+    <p class="connect-message plain muted quit-warning">
+      Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or any
+      other tool using adb is disconnected too. It is left running while this app is still using it,
+      such as an open Remote, and when the app restarts for an update.
+    </p>
+  {/if}
+  {#if stopOnQuit.error}
+    <p class="connect-message muted quit-error">
+      {stopOnQuit.error}
+      {#if stopOnQuit.setting === null && stopOnQuit.pending === 0}
+        <button class="inline-link" onclick={refreshStopOnQuit}>Check again</button>
+      {/if}
+    </p>
   {/if}
 </section>
 
@@ -1132,6 +1170,24 @@
   .connect-form input {
     flex: 1;
     min-width: 240px;
+  }
+  .quit-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .quit-checking {
+    font-style: italic;
+  }
+  .connect-form .quit-toggle input {
+    flex: none;
+    min-width: 0;
+    accent-color: var(--accent-strong);
+    cursor: pointer;
   }
   .connect-message {
     flex-basis: 100%;

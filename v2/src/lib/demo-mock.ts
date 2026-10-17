@@ -22,6 +22,7 @@ import type {
   OptimizePlan,
   OptimizePlanItem,
   SnapshotFile,
+  StopAdbOnQuit,
   TweaksState,
 } from "./types";
 
@@ -163,6 +164,34 @@ function demoDevices(): Device[] {
 }
 
 let debugLogging = false;
+// The native setting lasts as long as the app process, which a webview reload
+// does not end, so it is kept where a reload leaves it. Tests remove it to
+// stand in for a relaunch.
+const NATIVE_STOP_ADB_ON_QUIT = "shieldopt.demo.native.stopAdbOnQuit";
+
+function nativeStopAdbOnQuit(): StopAdbOnQuit {
+  try {
+    const stored = sessionStorage.getItem(NATIVE_STOP_ADB_ON_QUIT);
+    if (stored) return JSON.parse(stored);
+  } catch {
+    // Fall through to the launch default.
+  }
+  return { enabled: false, generation: 0 };
+}
+
+function storeNativeStopAdbOnQuit(next: StopAdbOnQuit): StopAdbOnQuit {
+  try {
+    sessionStorage.setItem(NATIVE_STOP_ADB_ON_QUIT, JSON.stringify(next));
+  } catch {
+    // Lasts until the next call reads the default again.
+  }
+  return next;
+}
+
+// Replies to the Stop ADB when quitting commands that a test holds back, for
+// the `stopAdbOnQuitHeld` flag. The command takes effect at once; only its
+// reply waits, like a slow IPC answer, until the test releases it.
+const heldReplies: Array<() => void> = [];
 const LOG_DIR = "/Users/you/Library/Application Support/ShieldOptimizer/logs";
 
 /// Stand-in for the real `collect_diagnostics`, in the same shape: host facts,
@@ -314,7 +343,7 @@ const launchers: LauncherStatus[] = [
     other: false,
     setup_helper: false,
   },
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: "https://github.com/spocky/miproja1/releases" }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
   { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
   { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
   { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
@@ -491,6 +520,23 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "get_stop_adb_on_quit":
+      if (demoFlag("stopAdbOnQuitReadFails")) throw "demo: the setting could not be read";
+      return nativeStopAdbOnQuit();
+    case "set_stop_adb_on_quit": {
+      if (demoFlag("stopAdbOnQuitFails")) throw "demo: the setting could not be changed";
+      let current = nativeStopAdbOnQuit();
+      // Another change lands first, so this one arrives from an outdated view.
+      if (demoFlag("stopAdbOnQuitRaced")) {
+        current = storeNativeStopAdbOnQuit({ ...current, generation: current.generation + 1 });
+      }
+      if (!args.enabled || args.generation === current.generation) {
+        current = storeNativeStopAdbOnQuit({ enabled: Boolean(args.enabled), generation: current.generation + 1 });
+      }
+      // The change landed, but its reply never makes it back.
+      if (demoFlag("stopAdbOnQuitReplyFails")) throw "demo: the reply was lost";
+      return current;
+    }
     case "plugin:app|version":
       // Tests stand in for a specific installed build to walk an upgrade
       // sequence; everything else sees the real version.
@@ -703,6 +749,17 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         interfaces: [{ name: "eth0", rx_bytes_per_s: 11_534_336, tx_bytes_per_s: 204_800 }],
         interval_ms: 1000,
       };
+    case "read_device_logs": {
+      const options = args.options as { package?: string; tag?: string };
+      return {
+        package: options.package ?? null,
+        pid: options.package ? 1234 : null,
+        output: {
+          stdout: "10-08 12:00:00.000  1234  1234 I " + (options.tag || "ActivityManager") + ": Synthetic demo log entry\n",
+          stderr: "", exit_code: 0, termination: "completed",
+        },
+      };
+    }
     case "run_shell": {
       const command = String(args.command ?? "");
       // Mirror the real safety gate so the demo/screenshot layer cannot show
@@ -870,11 +927,19 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
 }
 
 export function installDemoMock(): void {
-  const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
+  const w = window as unknown as { __TAURI_INTERNALS__?: unknown; __demoHeldReplies?: unknown };
   w.__TAURI_INTERNALS__ = {
-    invoke: (cmd: string, args: Record<string, unknown> = {}) => Promise.resolve(handle(cmd, args)),
+    invoke: (cmd: string, args: Record<string, unknown> = {}) => {
+      const reply = new Promise((resolve) => resolve(handle(cmd, args)));
+      if (!cmd.endsWith("_stop_adb_on_quit") || !demoFlag("stopAdbOnQuitHeld")) return reply;
+      return new Promise((resolve, reject) => heldReplies.push(() => reply.then(resolve, reject)));
+    },
     transformCallback: (cb: unknown) => cb,
     unregisterCallback: () => {},
     convertFileSrc: (path: string) => path,
+  };
+  w.__demoHeldReplies = {
+    count: () => heldReplies.length,
+    release: (which: "oldest" | "newest") => (which === "oldest" ? heldReplies.shift() : heldReplies.pop())?.(),
   };
 }

@@ -20,8 +20,6 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(not(target_os = "android"))]
 use tokio::net::TcpStream;
-#[cfg(not(target_os = "android"))]
-use tokio::process::Child;
 use tracing::debug;
 #[cfg(not(target_os = "android"))]
 use tracing::warn;
@@ -29,6 +27,8 @@ use tracing::warn;
 #[cfg(target_os = "android")]
 use crate::adb::AdbByteStream;
 use crate::adb::AdbDriver;
+#[cfg(not(target_os = "android"))]
+use crate::adb::TrackedChild;
 
 /// The scrcpy protocol version this jar implements. MUST equal the version
 /// baked into `resources/scrcpy-server-v3.1` or the server aborts on launch.
@@ -410,8 +410,8 @@ async fn connect_with_retry(port: u16) -> Result<TcpStream, String> {
 #[cfg(not(target_os = "android"))]
 pub struct RemoteInputSession {
     stream: TcpStream,
-    /// Kept alive for the session; `kill_on_drop(true)` reaps the server.
-    _child: Child,
+    /// Kept alive for the session; dropping it kills and reaps the server.
+    _child: TrackedChild,
     scid: String,
     port: u16,
     serial: String,
@@ -544,8 +544,8 @@ impl RemoteInputSession {
 #[cfg(not(target_os = "android"))]
 impl Drop for RemoteInputSession {
     fn drop(&mut self) {
-        // `_child` has kill_on_drop(true), so the server dies and the control
-        // socket closes here. Best-effort removal of the adb forward entry if a
+        // Dropping `_child` kills and reaps the server, so the control socket
+        // closes here. Best-effort removal of the adb forward entry if a
         // tokio runtime is live (e.g. app exit dropping the session registry).
         let adb = self.adb.clone();
         let serial = self.serial.clone();

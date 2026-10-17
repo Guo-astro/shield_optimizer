@@ -599,6 +599,7 @@ fn main() {
     let app = mock_builder()
         .manage(state)
         .manage(log_control)
+        .manage(shield_optimizer_v2_lib::commands::quit::AdbQuitControl::default())
         .invoke_handler(shield_optimizer_v2_lib::invoke_handler())
         .build(mock_context(noop_assets()))
         .expect("build mock app");

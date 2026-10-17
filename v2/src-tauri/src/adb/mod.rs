@@ -8,7 +8,35 @@ pub mod driver;
 pub mod install;
 pub mod scan;
 
+use std::sync::{Arc, LazyLock};
+
+use shield_optimizer_core::adb::Leases;
 use tokio::process::Command;
+
+/// Every adb process the app spawns, through any driver instance, counted
+/// until it is reaped. The quit stop waits for this to drain.
+pub fn child_leases() -> &'static Arc<Leases> {
+    static CHILDREN: LazyLock<Arc<Leases>> = LazyLock::new(Leases::new);
+    &CHILDREN
+}
+
+/// Write an executable test script from a separate process. A file this
+/// process had open for writing can fail to exec with "text file busy" when
+/// another test thread forks at the same moment.
+#[cfg(all(test, unix))]
+pub(crate) fn write_script(path: &std::path::Path, body: &str) {
+    let written = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "printf '%s' \"$1\" > \"$2\" && chmod 755 \"$2\"",
+            "sh",
+        ])
+        .arg(format!("#!/bin/sh\n{body}\n"))
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(written.success());
+}
 
 /// Suppress the console window Windows flashes when a GUI process spawns a
 /// console program (adb, route, …). Without this, every adb call from the app

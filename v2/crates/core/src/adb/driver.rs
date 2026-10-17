@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use super::lifetimes::TrackedChild;
+
 /// Blocking byte stream returned by a device service such as a localabstract
 /// socket. Mobile implements this with a dedicated pure-Rust ADB connection;
 /// desktop does not need it because its adb process owns port forwarding.
@@ -36,6 +38,8 @@ pub enum AdbError {
     Unsupported { operation: &'static str },
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("the app is quitting, so no new adb work is started")]
+    ShuttingDown,
 }
 
 pub type AdbResult<T> = Result<T, AdbError>;
@@ -174,13 +178,36 @@ pub trait AdbDriver: Send + Sync {
     }
 
     /// Spawn `adb <args...>` as a long-lived child WITHOUT awaiting completion,
-    /// handing the caller the `Child` to own (configured `kill_on_drop(true)`).
+    /// handing the caller the child to own (configured `kill_on_drop(true)`).
     /// Unlike `raw`/`shell`, the process is expected to keep running — for
-    /// resident helpers like the scrcpy control server. Default reports
+    /// resident helpers like the scrcpy control server. It stays counted until
+    /// reaped, so quit cannot stop the server under it. Default reports
     /// unsupported so mocks need no extra wiring.
-    async fn spawn(&self, _args: &[&str]) -> AdbResult<tokio::process::Child> {
+    async fn spawn(&self, _args: &[&str]) -> AdbResult<TrackedChild> {
         Err(AdbError::Unsupported { operation: "spawn" })
     }
+
+    /// Stop the adb server this driver's commands talk to, giving up after
+    /// `timeout`. Only the opt-in quit stop calls this, once, after every
+    /// operation and adb process has drained. Default: nothing to stop.
+    async fn stop_server(&self, _timeout: std::time::Duration) -> ServerStop {
+        ServerStop::Skipped("this driver has no adb server to stop".to_string())
+    }
+}
+
+/// What the quit-time `adb kill-server` came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerStop {
+    /// `kill-server` ran and exited zero.
+    Stopped,
+    /// `kill-server` could not be started or exited nonzero.
+    Failed(String),
+    /// `kill-server` did not finish in time. The driver tries to end it so it
+    /// cannot stop a server later, but may not be able to confirm that, and
+    /// whether the server had already stopped is unknown.
+    Unknown,
+    /// Not attempted, for the reason given.
+    Skipped(String),
 }
 
 #[cfg(test)]

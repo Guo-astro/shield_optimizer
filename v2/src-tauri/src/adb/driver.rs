@@ -1,6 +1,9 @@
 //! Desktop subprocess-backed ADB driver.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -12,6 +15,7 @@ use tracing::{debug, warn};
 use shield_optimizer_core::adb::driver::process_output;
 use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
 use crate::session;
 
@@ -20,6 +24,10 @@ use crate::session;
 pub struct SubprocessAdb {
     binary: PathBuf,
     command_timeout: Duration,
+    /// Where each spawned adb process is counted until reaped. Every
+    /// production driver shares the process-wide counter, so a driver swapped
+    /// in by `install_adb` is covered too.
+    children: Arc<Leases>,
 }
 
 impl SubprocessAdb {
@@ -28,6 +36,7 @@ impl SubprocessAdb {
         Self {
             binary,
             command_timeout: Duration::from_secs(30),
+            children: Arc::clone(super::child_leases()),
         }
     }
 
@@ -52,6 +61,59 @@ impl SubprocessAdb {
         self
     }
 
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_child_leases(mut self, children: Arc<Leases>) -> Self {
+        self.children = children;
+        self
+    }
+
+    /// Spawn `cmd` and gather both streams and its exit status within
+    /// `limit`. The process stays counted until it is reaped, which happens
+    /// before this returns, on timeout too.
+    async fn collect_output(&self, mut cmd: Command, limit: Duration) -> AdbResult<Collected> {
+        let lease = self.children.try_acquire().ok_or(AdbError::ShuttingDown)?;
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        let mut child = TrackedChild::new(cmd.spawn()?, lease);
+        let mut stdout = child
+            .child_mut()
+            .stdout
+            .take()
+            .expect("stdout configured as pipe");
+        let mut stderr = child
+            .child_mut()
+            .stderr
+            .take()
+            .expect("stderr configured as pipe");
+        let collect = async {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let (status, _, _) = tokio::try_join!(
+                child.wait(),
+                stdout.read_to_end(&mut out),
+                stderr.read_to_end(&mut err)
+            )?;
+            Ok::<_, std::io::Error>(std::process::Output {
+                status,
+                stdout: out,
+                stderr: err,
+            })
+        };
+        match timeout(limit, collect).await {
+            Ok(Ok(output)) => Ok(Collected::Done(output)),
+            Ok(Err(io)) => {
+                child.kill_and_reap().await;
+                Err(io.into())
+            }
+            Err(_) => {
+                child.kill_and_reap().await;
+                Ok(Collected::TimedOut)
+            }
+        }
+    }
+
     async fn run(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run_with_timeout(args, self.command_timeout).await
     }
@@ -70,23 +132,21 @@ impl SubprocessAdb {
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke");
 
         let mut cmd = Command::new(&self.binary);
-        cmd.args(args).kill_on_drop(true);
+        cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
-        let fut = cmd.output();
 
-        let output = match timeout(dur, fut).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(io)) => {
-                let e = AdbError::from(io);
-                record_failure(args, started, &e, "text");
-                return Err(e);
-            }
-            Err(_) => {
+        let output = match self.collect_output(cmd, dur).await {
+            Ok(Collected::Done(output)) => output,
+            Ok(Collected::TimedOut) => {
                 warn!(args = ?safe_args, ms = started.elapsed().as_millis(), "adb timeout");
                 let e = AdbError::Timeout {
                     seconds: dur.as_secs(),
                 };
+                record_failure(args, started, &e, "text");
+                return Err(e);
+            }
+            Err(e) => {
                 record_failure(args, started, &e, "text");
                 return Err(e);
             }
@@ -302,8 +362,8 @@ fn adb_session_line(
     })
 }
 
-/// The expert shell runs whatever the user typed, so neither the command nor
-/// its output is recorded — only that it ran and how it ended.
+/// Expert shell commands and device logs can contain private data. Record
+/// only that bounded execution ran and how it ended, never its payload.
 fn bounded_session_line(
     serial: &str,
     ms: u128,
@@ -318,7 +378,7 @@ fn bounded_session_line(
         "kind": "adb",
         "ts": session::now_ts(),
         "serial": serial,
-        "args": ["-s", serial, "shell", "<expert shell command redacted>"],
+        "args": ["-s", serial, "shell", "<bounded shell command redacted>"],
         "ms": ms,
         "exit_code": exit_code,
         "stdout": "",
@@ -336,18 +396,33 @@ const TRANSFER_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SHELL_OUTPUT_LIMIT: usize = 256 * 1024;
 const SHELL_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How an ordinary adb call's process ended, short of an I/O error.
+enum Collected {
+    Done(std::process::Output),
+    TimedOut,
+}
+
 async fn collect_bounded_shell(
     mut cmd: Command,
     duration: Duration,
+    children: &Arc<Leases>,
 ) -> AdbResult<BoundedShellOutput> {
-    use std::process::Stdio;
+    let lease = children.try_acquire().ok_or(AdbError::ShuttingDown)?;
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let mut child = cmd.spawn()?;
-    let mut stdout = child.stdout.take().expect("stdout configured as pipe");
-    let mut stderr = child.stderr.take().expect("stderr configured as pipe");
+    let mut child = TrackedChild::new(cmd.spawn()?, lease);
+    let mut stdout = child
+        .child_mut()
+        .stdout
+        .take()
+        .expect("stdout configured as pipe");
+    let mut stderr = child
+        .child_mut()
+        .stderr
+        .take()
+        .expect("stderr configured as pipe");
     let mut out = Vec::new();
     let mut err = Vec::new();
     let mut out_buf = [0u8; 8192];
@@ -423,7 +498,7 @@ impl AdbDriver for SubprocessAdb {
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
         let started = Instant::now();
-        let result = collect_bounded_shell(cmd, SHELL_TIMEOUT).await;
+        let result = collect_bounded_shell(cmd, SHELL_TIMEOUT, &self.children).await;
         if session::is_recording() {
             session::record(bounded_session_line(
                 serial,
@@ -432,12 +507,12 @@ impl AdbDriver for SubprocessAdb {
             ));
         }
         match &result {
-            // Only the expert shell uses this path. Its command and output
-            // are whatever the user chose to run, so neither is logged: the
+            // Expert shell and logcat use this path. Their commands and output
+            // may contain private data, so neither is logged: the
             // debug log feeds the bug-report bundle.
             Ok(out) => debug!(
                 serial,
-                command = "<expert shell command redacted>",
+                command = "<bounded shell command redacted>",
                 ms = started.elapsed().as_millis(),
                 exit_code = ?out.exit_code,
                 termination = ?out.termination,
@@ -447,7 +522,7 @@ impl AdbDriver for SubprocessAdb {
             ),
             Err(e) => debug!(
                 serial,
-                command = "<expert shell command redacted>",
+                command = "<bounded shell command redacted>",
                 ms = started.elapsed().as_millis(),
                 error = %e,
                 "adb shell (bounded) failed"
@@ -470,22 +545,21 @@ impl AdbDriver for SubprocessAdb {
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke (binary)");
 
         let mut cmd = Command::new(&self.binary);
-        cmd.args(args).kill_on_drop(true);
+        cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
 
-        let output = match timeout(self.command_timeout, cmd.output()).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(io)) => {
-                let e = AdbError::from(io);
-                record_failure(args, started, &e, "bytes");
-                return Err(e);
-            }
-            Err(_) => {
+        let output = match self.collect_output(cmd, self.command_timeout).await {
+            Ok(Collected::Done(output)) => output,
+            Ok(Collected::TimedOut) => {
                 warn!(args = ?safe_args, ms = started.elapsed().as_millis(), "adb timeout");
                 let e = AdbError::Timeout {
                     seconds: self.command_timeout.as_secs(),
                 };
+                record_failure(args, started, &e, "bytes");
+                return Err(e);
+            }
+            Err(e) => {
                 record_failure(args, started, &e, "bytes");
                 return Err(e);
             }
@@ -524,12 +598,13 @@ impl AdbDriver for SubprocessAdb {
         Ok(output.stdout)
     }
 
-    async fn spawn(&self, args: &[&str]) -> AdbResult<tokio::process::Child> {
+    async fn spawn(&self, args: &[&str]) -> AdbResult<TrackedChild> {
         if !self.binary.exists() {
             return Err(AdbError::BinaryMissing {
                 path: self.binary.display().to_string(),
             });
         }
+        let lease = self.children.try_acquire().ok_or(AdbError::ShuttingDown)?;
 
         debug!(adb = ?self.binary, args = ?redact_args(args), "adb spawn (long-lived)");
 
@@ -546,8 +621,61 @@ impl AdbDriver for SubprocessAdb {
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
 
-        cmd.spawn().map_err(AdbError::Io)
+        let child = cmd.spawn().map_err(AdbError::Io)?;
+        Ok(TrackedChild::new(child, lease))
     }
+
+    async fn stop_server(&self, limit: Duration) -> ServerStop {
+        if let Some(var) = custom_server_target(|name| std::env::var_os(name)) {
+            return ServerStop::Skipped(format!(
+                "{var} points adb at a server the app does not manage"
+            ));
+        }
+        if !self.binary.exists() {
+            return ServerStop::Skipped(format!("adb binary at {} is gone", self.binary.display()));
+        }
+        let mut cmd = Command::new(&self.binary);
+        cmd.arg("kill-server")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        super::hide_console_window(&mut cmd);
+        super::pin_working_directory(&mut cmd);
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => return ServerStop::Failed(e.to_string()),
+        };
+        match timeout(limit, child.wait()).await {
+            Ok(Ok(status)) if status.success() => ServerStop::Stopped,
+            Ok(Ok(status)) => ServerStop::Failed(format!("adb kill-server exited with {status}")),
+            _ => {
+                // A stop client left running could still shut a server down
+                // later, maybe one that started after this app was gone.
+                if !matches!(timeout(STOP_REAP_LIMIT, child.kill()).await, Ok(Ok(()))) {
+                    warn!("could not confirm the timed-out adb kill-server exited");
+                }
+                ServerStop::Unknown
+            }
+        }
+    }
+}
+
+/// How long a timed-out `kill-server` gets to die after being killed.
+const STOP_REAP_LIMIT: Duration = Duration::from_secs(2);
+
+/// Environment that points adb at a server other than the default local one.
+/// The quit stop leaves such a server alone rather than guess whose it is.
+const SERVER_TARGET_VARS: [&str; 3] = [
+    "ADB_SERVER_SOCKET",
+    "ANDROID_ADB_SERVER_ADDRESS",
+    "ANDROID_ADB_SERVER_PORT",
+];
+
+fn custom_server_target(var: impl Fn(&str) -> Option<OsString>) -> Option<&'static str> {
+    SERVER_TARGET_VARS
+        .into_iter()
+        .find(|name| var(name).is_some_and(|value| !value.is_empty()))
 }
 
 /// Memoized result of [`discover_adb_binary`].
@@ -860,7 +988,7 @@ mod tests {
         let line = bounded_session_line("tv:5555", 9, &result);
         let text = line.to_string();
         assert!(!text.contains("secret"));
-        assert_eq!(line["args"][3], "<expert shell command redacted>");
+        assert_eq!(line["args"][3], "<bounded shell command redacted>");
         assert_eq!(line["exit_code"], 0);
         assert_eq!(line["termination"], "completed");
         assert_eq!(line["stream"], "bounded");
@@ -939,7 +1067,9 @@ mod tests {
     async fn shell_fixture(script: &str, duration: Duration) -> BoundedShellOutput {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", script]);
-        collect_bounded_shell(command, duration).await.unwrap()
+        collect_bounded_shell(command, duration, &Leases::new())
+            .await
+            .unwrap()
     }
 
     #[cfg(unix)]
@@ -960,6 +1090,184 @@ mod tests {
         assert!(
             matches!(result, Err(AdbError::NonZeroExit { code: Some(7), stderr }) if stderr == "failure")
         );
+    }
+
+    #[cfg(unix)]
+    mod process_lifetimes {
+        use super::*;
+
+        /// A stand-in adb running `body`, which can write its pid to `pid`.
+        fn fake_adb(dir: &Path, body: &str) -> PathBuf {
+            let adb = dir.join("adb");
+            let pid = dir.join("pid");
+            crate::adb::write_script(&adb, &format!("PID_FILE='{}'\n{body}", pid.display()));
+            adb
+        }
+
+        async fn pid_of(dir: &Path) -> u32 {
+            for _ in 0..200 {
+                if let Ok(text) = std::fs::read_to_string(dir.join("pid")) {
+                    if let Ok(pid) = text.trim().parse() {
+                        return pid;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the fake adb never wrote its pid");
+        }
+
+        fn alive(pid: u32) -> bool {
+            std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        }
+
+        const SLEEPER: &str = "echo $$ > \"$PID_FILE\"; exec sleep 30";
+
+        #[tokio::test]
+        async fn inherited_output_pipes_respect_timeout_after_direct_child_exit() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), "/bin/sleep 1 &\nprintf output"))
+                .with_timeout(Duration::from_millis(100))
+                .with_child_leases(Arc::clone(&children));
+            let started = Instant::now();
+            let result = tokio::time::timeout(Duration::from_millis(800), driver.raw(&[])).await;
+            assert!(matches!(result, Ok(Err(AdbError::Timeout { .. }))));
+            assert!(started.elapsed() < Duration::from_millis(800));
+            assert_eq!(children.active(), 0, "only the direct client is tracked");
+        }
+
+        #[tokio::test]
+        async fn replacement_and_old_driver_clones_share_closed_process_admission() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = fake_adb(dir.path(), "echo $$ > \"$PID_FILE\"; printf ok");
+            let old = SubprocessAdb::new(path.clone());
+            let old_clone = old.clone();
+            let replacement = SubprocessAdb::new(path);
+            assert!(Arc::ptr_eq(&old.children, &replacement.children));
+            // Replace the global counter in each fixture before closing anything.
+            let children = Leases::new();
+            let old = old.with_child_leases(Arc::clone(&children));
+            let old_clone = old_clone.with_child_leases(Arc::clone(&children));
+            let replacement = replacement.with_child_leases(Arc::clone(&children));
+            children.close();
+            for driver in [&old, &old_clone, &replacement] {
+                assert!(matches!(driver.raw(&[]).await, Err(AdbError::ShuttingDown)));
+            }
+            assert!(!dir.path().join("pid").exists());
+        }
+
+        #[tokio::test]
+        async fn a_timed_out_call_is_reaped_before_it_returns() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
+                .with_timeout(Duration::from_millis(300))
+                .with_child_leases(Arc::clone(&children));
+            let result = driver.raw(&["devices"]).await;
+            assert!(matches!(result, Err(AdbError::Timeout { .. })));
+            assert_eq!(children.active(), 0);
+            assert!(!alive(pid_of(dir.path()).await));
+        }
+
+        #[tokio::test]
+        async fn a_cancelled_call_stays_counted_until_its_process_is_reaped() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
+                .with_child_leases(Arc::clone(&children));
+            let call = driver.raw(&["devices"]);
+            let gave_up = tokio::time::timeout(Duration::from_millis(300), call).await;
+            assert!(gave_up.is_err());
+            let pid = pid_of(dir.path()).await;
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            assert!(children.wait_idle(deadline).await);
+            assert!(!alive(pid));
+        }
+
+        #[tokio::test]
+        async fn a_resident_child_counts_until_it_is_reaped() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
+                .with_child_leases(Arc::clone(&children));
+            let resident = driver.spawn(&["shell", "server"]).await.unwrap();
+            let pid = pid_of(dir.path()).await;
+            assert_eq!(children.active(), 1);
+            drop(resident);
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            assert!(children.wait_idle(deadline).await);
+            assert!(!alive(pid));
+        }
+
+        #[tokio::test]
+        async fn closed_process_admission_refuses_to_spawn() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
+                .with_child_leases(Arc::clone(&children));
+            children.close();
+            assert!(matches!(
+                driver.raw(&["devices"]).await,
+                Err(AdbError::ShuttingDown)
+            ));
+            assert!(matches!(
+                driver.shell_bounded("tv", "true").await,
+                Err(AdbError::ShuttingDown)
+            ));
+            assert!(matches!(
+                driver.raw_bytes(&["exec-out", "true"]).await,
+                Err(AdbError::ShuttingDown)
+            ));
+            assert!(matches!(
+                driver.spawn(&["shell", "server"]).await,
+                Err(AdbError::ShuttingDown)
+            ));
+            assert!(!dir.path().join("pid").exists());
+        }
+
+        #[tokio::test]
+        async fn a_stop_that_times_out_is_killed_and_reported_unknown() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER));
+            assert_eq!(
+                driver.stop_server(Duration::from_millis(300)).await,
+                ServerStop::Unknown
+            );
+            assert!(!alive(pid_of(dir.path()).await));
+        }
+
+        #[tokio::test]
+        async fn the_stop_reports_what_kill_server_exited_with() {
+            let dir = tempfile::tempdir().unwrap();
+            let stopped = SubprocessAdb::new(fake_adb(dir.path(), "exit 0"));
+            assert_eq!(
+                stopped.stop_server(Duration::from_secs(5)).await,
+                ServerStop::Stopped
+            );
+            let dir = tempfile::tempdir().unwrap();
+            let failed = SubprocessAdb::new(fake_adb(dir.path(), "exit 1"));
+            assert!(matches!(
+                failed.stop_server(Duration::from_secs(5)).await,
+                ServerStop::Failed(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_server_target_override_is_left_alone() {
+        let none = |_: &str| None;
+        assert_eq!(custom_server_target(none), None);
+        let empty = |_: &str| Some(OsString::new());
+        assert_eq!(custom_server_target(empty), None);
+        for var in SERVER_TARGET_VARS {
+            let set = |name: &str| (name == var).then(|| OsString::from("tcp:10.0.0.2:5037"));
+            assert_eq!(custom_server_target(set), Some(var));
+        }
     }
 
     #[cfg(unix)]
