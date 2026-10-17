@@ -19,6 +19,8 @@ import type {
   CurrentLauncher,
   Device,
   DeviceReport,
+  DeviceLogOptions,
+  DeviceLogResult,
   DeviceType,
   DiscoveredApk,
   DisplayScalePreset,
@@ -43,6 +45,7 @@ import type {
   RecoveryResult,
   ResourceSample,
   RestartResult,
+  StopAdbOnQuit,
   Safety,
   ScanResult,
   ScreenshotResult,
@@ -59,10 +62,15 @@ import type {
 } from "./types";
 
 export const api = {
+  readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
+    invoke<DeviceLogResult>("read_device_logs", { serial, options }),
   adbStatus: () => invoke<AdbStatus>("adb_status"),
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
+  stopAdbOnQuit: () => invoke<StopAdbOnQuit>("get_stop_adb_on_quit"),
+  setStopAdbOnQuit: (enabled: boolean, generation: number) =>
+    invoke<StopAdbOnQuit>("set_stop_adb_on_quit", { enabled, generation }),
   scanNetwork: () => invoke<ScanResult>("scan_network"),
   reportAll: () => invoke<DeviceReport[]>("report_all"),
 

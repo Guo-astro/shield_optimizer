@@ -82,9 +82,8 @@ export interface AppStorage {
 export interface LauncherEntry {
   name: string;
   package: string;
-  /// The launcher's official page, for the "Get" link on a row that isn't
-  /// installed. Null for stock launchers and for HOME handlers found on the
-  /// device rather than in the catalog.
+  /// The launcher's official source page, available even when installed.
+  /// Null for stock launchers and HOME handlers outside the catalog.
   source_url: string | null;
   /// Setup helpers (Setup Wraith) a takeover turns off together with this
   /// stock launcher. Present only on a stock entry that has one.
@@ -169,6 +168,24 @@ export interface ResourceSample {
   interval_ms: number | null;
 }
 
+export interface DeviceLogOptions {
+  priority: "verbose" | "debug" | "info" | "warning" | "error" | "fatal";
+  lines: number;
+  tag: string | null;
+  package: string | null;
+}
+
+export interface DeviceLogResult {
+  output: {
+    stdout: string;
+    stderr: string;
+    exit_code: number | null;
+    termination: "completed" | "output_limit" | "timeout";
+  };
+  package: string | null;
+  pid: number | null;
+}
+
 export interface ShellRunResult {
   stdout: string;
   stderr: string;
@@ -223,6 +240,14 @@ export interface DeviceReport {
 export interface RestartResult {
   ok: boolean;
   message: string;
+}
+
+/// "Stop ADB when quitting" as the quit path will read it. `generation` goes
+/// up with every applied change; a change sent from an older one may be
+/// refused, and the reply is always the setting as it now stands.
+export interface StopAdbOnQuit {
+  enabled: boolean;
+  generation: number;
 }
 
 export interface SnapshotFile {

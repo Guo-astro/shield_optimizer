@@ -132,6 +132,12 @@ jobs:
         working-directory: v2
         run: npm run test:device-list-rows
 
+      # Stopping adb on quit disconnects every tool on the computer, so the
+      # checkbox may only show what the native side confirmed.
+      - name: Stop ADB when quitting
+        working-directory: v2
+        run: npm run test:stop-adb-on-quit
+
       # Release notes are remote Markdown from the updater manifest: they must
       # render before an update installs, and must never become markup.
       - name: Release notes parser
@@ -218,6 +224,10 @@ jobs:
         working-directory: v2
         run: npm run test:recommendation-labels
 
+      - name: Device log snapshots and lifecycle
+        working-directory: v2
+        run: npm run test:device-logs
+
       - name: Launcher rows
         working-directory: v2
         run: npm run test:launcher-rows
@@ -227,6 +237,22 @@ jobs:
       - name: Context menu
         working-directory: v2
         run: npm run test:context-menu
+
+      # Reviewable UI frames also allow gallery regeneration without a local browser.
+      - name: Capture demo screenshots
+        working-directory: v2
+        run: node screenshots/capture.mjs
+
+      - name: Upload demo screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-demo-frames
+          path: |
+            v2/screenshots/frames/
+            v2/screenshots/frames-light/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # The real Rust command layer against simulated devices, with Playwright
   # driving the real UI. See v2/e2e/README.md.

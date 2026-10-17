@@ -9,18 +9,23 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
+use crate::adb::lifetimes::{ClosedAdb, LeasedAdb};
 #[cfg(not(target_os = "android"))]
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
-use crate::adb::AdbDriver;
 use crate::adb::RemoteInputSession;
+use crate::adb::{AdbDriver, Leases, ServerStop};
 use crate::engine::AppListBundle;
 use crate::license::{Entitlement, Feature, LicenseInfo};
 
 /// State managed by Tauri's state store. Held by `tauri::Builder::manage`.
 pub struct AppState {
     /// The driver for ADB calls. Wrapped so we can hot-swap it after a
-    /// successful platform-tools download (no app restart required).
-    pub adb: RwLock<Arc<dyn AdbDriver>>,
+    /// successful platform-tools download (no app restart required). Private
+    /// so every use goes through `adb_snapshot`, which counts it.
+    adb: RwLock<Arc<dyn AdbDriver>>,
+    /// Every live driver snapshot holds one of these, across driver swaps.
+    /// Quit closes it and waits for it to drain before stopping the server.
+    adb_operations: Arc<Leases>,
     /// Loaded app-list bundle (common + shield + googletv).
     pub app_lists: AppListBundle,
     /// App data root (parent of `snapshot_dir`) — small bookkeeping files
@@ -56,6 +61,7 @@ impl AppState {
     pub fn new(adb: Arc<dyn AdbDriver>, app_lists: AppListBundle, data_dir: PathBuf) -> Self {
         Self {
             adb: RwLock::new(adb),
+            adb_operations: Leases::new(),
             app_lists,
             snapshot_dir: data_dir.join("snapshots"),
             data_dir,
@@ -118,9 +124,36 @@ impl AppState {
         }
     }
 
-    /// Snapshot the current driver `Arc` — cheap clone for command bodies.
+    /// Snapshot the current driver for one operation. The snapshot counts as
+    /// running ADB work until its last clone is dropped. Once quit has closed
+    /// admission, it refuses every call instead.
     pub async fn adb_snapshot(&self) -> Arc<dyn AdbDriver> {
-        self.adb.read().await.clone()
+        let driver = self.adb.read().await.clone();
+        match self.adb_operations.try_acquire() {
+            Some(lease) => Arc::new(LeasedAdb::new(driver, lease)),
+            None => Arc::new(ClosedAdb),
+        }
+    }
+
+    /// Refuse every later snapshot. Snapshots already handed out keep working.
+    pub fn close_adb_admission(&self) {
+        self.adb_operations.close();
+    }
+
+    /// Wait until no snapshot is alive, up to `deadline`.
+    pub async fn wait_adb_operations(&self, deadline: tokio::time::Instant) -> bool {
+        self.adb_operations.wait_idle(deadline).await
+    }
+
+    pub fn adb_operations_active(&self) -> usize {
+        self.adb_operations.active()
+    }
+
+    /// Stop the adb server through the live driver, outside admission. Only
+    /// the quit path calls this, after admission has closed and drained.
+    pub async fn stop_adb_server(&self, timeout: std::time::Duration) -> ServerStop {
+        let driver = self.adb.read().await.clone();
+        driver.stop_server(timeout).await
     }
 
     /// Swap the driver — used by `install_adb` after a successful download.
@@ -265,5 +298,86 @@ pub fn resolve_scrcpy_server_jar<R: tauri::Runtime>(
             "scrcpy server jar not found (looked in the Tauri resource dir and {})",
             dev.display()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adb::AdbError;
+    use crate::commands::test_support::MockAdb;
+
+    fn state() -> AppState {
+        AppState::new(
+            Arc::new(MockAdb::default()),
+            AppListBundle::default(),
+            std::env::temp_dir(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_driver_without_a_server_skips_stop_without_dispatching_commands() {
+        let mock = MockAdb::default();
+        let raw = mock.raw_log();
+        let shell = mock.shell_log();
+        let state = AppState::new(
+            Arc::new(mock),
+            AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        assert!(matches!(
+            state.stop_adb_server(std::time::Duration::ZERO).await,
+            ServerStop::Skipped(_)
+        ));
+        assert!(matches!(
+            state
+                .adb_snapshot()
+                .await
+                .stop_server(std::time::Duration::ZERO)
+                .await,
+            ServerStop::Skipped(_)
+        ));
+        assert!(raw.lock().unwrap().is_empty());
+        assert!(shell.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn every_snapshot_counts_until_its_last_clone_goes() {
+        let state = state();
+        let snapshot = state.adb_snapshot().await;
+        let kept_by_a_session = Arc::clone(&snapshot);
+        assert_eq!(state.adb_operations_active(), 1);
+        drop(snapshot);
+        assert_eq!(state.adb_operations_active(), 1);
+        drop(kept_by_a_session);
+        assert_eq!(state.adb_operations_active(), 0);
+    }
+
+    #[tokio::test]
+    async fn snapshots_of_a_swapped_driver_share_one_count() {
+        let state = state();
+        let old = state.adb_snapshot().await;
+        state.replace_adb(Arc::new(MockAdb::default())).await;
+        let new = state.adb_snapshot().await;
+        assert_eq!(state.adb_operations_active(), 2);
+        drop((old, new));
+        assert_eq!(state.adb_operations_active(), 0);
+    }
+
+    #[tokio::test]
+    async fn closing_admission_refuses_new_snapshots_but_not_running_ones() {
+        let mock = MockAdb::default();
+        let calls = mock.raw_log();
+        let state = AppState::new(
+            Arc::new(mock),
+            AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let running = state.adb_snapshot().await;
+        state.close_adb_admission();
+        assert!(running.raw(&["devices"]).await.is_ok());
+        let late = state.adb_snapshot().await.raw(&["devices"]).await;
+        assert!(matches!(late, Err(AdbError::ShuttingDown)));
+        assert_eq!(calls.lock().unwrap().as_slice(), ["devices"]);
     }
 }
