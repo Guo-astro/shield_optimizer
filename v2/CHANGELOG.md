@@ -25,6 +25,7 @@ this file and shows the newest few sections, dated, from its version button.
 ### Added
 
 - Add a read-only desktop Logs tab with severity, tag and main-process filters, bounded recent snapshots, local text search and optional auto-refresh that stops when leaving the view. Raw logs stay out of automatic debug reports.
+- Stop ADB when quitting, beside Restart ADB on Devices, off by default. The adb server otherwise keeps running after the app closes and holds every network device's connection open, so the TV goes on receiving adb traffic. Turning it on stops that server for every tool on the computer (Android Studio, scrcpy, a terminal), which the setting says. The server is still left running while the app is using adb (an open Remote, a command in progress), when the app restarts for an update, and when adb is pointed at a non-default server.
 
 ### Fixed
 

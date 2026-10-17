@@ -45,6 +45,7 @@ import type {
   RecoveryResult,
   ResourceSample,
   RestartResult,
+  StopAdbOnQuit,
   Safety,
   ScanResult,
   ScreenshotResult,
@@ -67,6 +68,9 @@ export const api = {
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
+  stopAdbOnQuit: () => invoke<StopAdbOnQuit>("get_stop_adb_on_quit"),
+  setStopAdbOnQuit: (enabled: boolean, generation: number) =>
+    invoke<StopAdbOnQuit>("set_stop_adb_on_quit", { enabled, generation }),
   scanNetwork: () => invoke<ScanResult>("scan_network"),
   reportAll: () => invoke<DeviceReport[]>("report_all"),
 

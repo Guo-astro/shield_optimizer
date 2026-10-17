@@ -9,6 +9,7 @@ pub mod backup;
 pub mod diagnostics;
 pub mod files;
 pub mod install;
+pub mod quit;
 pub mod scan;
 pub mod sideload;
 pub mod update;

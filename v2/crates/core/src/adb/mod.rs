@@ -2,6 +2,7 @@
 
 pub mod batch;
 pub mod driver;
+pub mod lifetimes;
 pub mod parse;
 pub mod remote_input;
 #[cfg(any(test, feature = "test-support"))]
@@ -11,8 +12,10 @@ pub mod storage;
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
 pub use driver::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ShellTermination,
+    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ServerStop,
+    ShellTermination,
 };
+pub use lifetimes::{Lease, Leases, TrackedChild};
 pub use parse::{
     instance_serial, is_network_endpoint, kb_to_mb, package_for_process, parse_active_audio_device,
     parse_device_list, parse_disabled_packages_output, parse_display_mode, parse_display_modes,
