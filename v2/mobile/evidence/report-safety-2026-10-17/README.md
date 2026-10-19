@@ -12,7 +12,7 @@ AppDetailSheet calls `onVerdict(pkg, null)` only after its current guarded safet
 
 Nine focused mocked browser regressions pass in `focused.txt`. They cover stale Safe/Caution/Protected catalog values followed by sheet failure; exact preview/copied JSON while the report retry is pending and failed; successful retry to Unknown/no_record; late report responses after close/reopen, package change and same-endpoint reconnect; absent sheet cache fallback; late sheet replies across package/session changes; and reuse of a successful current sheet verdict without another report retry. Existing target, request, generation and liveness checks are unchanged. All 343 combined mobile tests pass in `combined-mobile.txt`; frontend check is zero errors/warnings and production build passes with existing lock-matching mobile dependencies.
 
-No Rust or Android-native source changed, so native compilation was not repeated. Independent review and exact-head CI remain gates for this new branch. Historical validation and completed PR202/203 statuses remain intact.
+No Rust or Android-native source changed, so native compilation was not repeated. At the time of this original local receipt, independent review and exact-head CI remained gates; the subsequent completion receipt below supersedes that status. Historical validation and completed PR202/203 statuses remain intact.
 
 ## Simulated visual evidence
 
@@ -24,3 +24,7 @@ All lookups, clipboard writes and devices are browser fixtures at 384×812. Scre
 - [4.88-second interaction video](report-safety-simulated.webm) shows the failed sheet lookup, report copy, failed retry and fresh successful retry. Raw recorder intermediates are omitted.
 
 Reproduce from v2/mobile using existing dependencies: `REPORT_SAFETY_EVIDENCE=1 node --test --test-concurrency=1 --test-name-pattern='report safety:' tests/apps-catalog.test.mjs`. Run the full suite with `npm test`, plus `npm run check` and `npm run build`. Desktop gallery regeneration is inapplicable because no captured desktop UI changed. Physical Android/clipboard acceptance, release and publication remain outside this slice.
+
+## Subsequent review, CI and merge receipt
+
+[Final independent source review](https://github.com/bryanroscoe/shield_optimizer/pull/204#issuecomment-6235587609) approved exact head `b7405034aaba11f911d9e0916a221148238c84cd`; [all six exact-head CI jobs](https://github.com/bryanroscoe/shield_optimizer/actions/runs/39043175482) passed. [PR204](https://github.com/bryanroscoe/shield_optimizer/pull/204) merged as `d388cad1e3da9c17e0a5c0bdeec52022fd8d9970`. The original 343-test local receipt and simulated evidence above remain historical and unchanged; physical-device acceptance remains open. This is not validation of later integration heads.
