@@ -1,6 +1,8 @@
 # ATV Optimizer
 
-Debloat and tune Android TV devices — disable bloat, switch launchers, sideload APKs, tweak HDMI-CEC and frame-rate matching, and pull health reports. Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer**, and other Android TV devices. Every change is reversible.
+Debloat and tune Android TV devices — disable bloat, switch launchers, sideload APKs, tweak HDMI-CEC and frame-rate matching, and pull health reports. Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer**, and other Android TV devices. Available actions depend on the device firmware and its permissions.
+
+**Fire TV compatibility is build-dependent.** Some Fire OS builds reject changes to the protected Amazon stock launcher, including attempts to re-enable it. Recognizing Projectivy or another supported launcher does not establish that the firmware permits changing Home or disabling stock. The app reports the command error, precautionary restore outcome and actual Home readback separately; it does not bypass firmware protection. See [issue #205](https://github.com/bryanroscoe/shield_optimizer/issues/205) for a Toshiba Fire TV report still awaiting version/build details.
 
 ## Which version should I use?
 
@@ -81,14 +83,14 @@ These builds aren't code-signed yet, so your OS may warn on first launch. One-ti
 
 For Android 11+ Wireless debugging, **Pair PIN** establishes trust using the IP:port and code in **Pair device with pairing code**. Pairing does not connect the TV. Return to the main Wireless debugging screen and enter the separate IP:port shown there in **Connect IP**; do not reuse the pairing port. If ADB connects the paired device automatically through mDNS, it will appear after the device list refreshes.
 
-There is no minimum or maximum Android version. If a device is not showing up, it is a discovery or pairing problem, not a supported-version one.
+Android version alone does not determine compatibility. Discovery and pairing require the firmware to expose a usable ADB service, authorize the connection, and provide a reachable network path. Firmware restrictions or unavailable ADB features can prevent connection or specific actions.
 
 | Tab | What it does |
 |-----|--------------|
 | **Overview** | Device profile — model, Android version, build, hardware ID. |
 | **Health** | Temperature, CPU and network sampling, RAM and storage meters, display mode + HDR, audio, and the top memory consumers (with safety verdicts). |
 | **Playback** | What the TV is actually outputting — resolution, refresh, HDR and audio passthrough. |
-| **Launcher** | Install Projectivy / FLauncher / ATV / Wolf, set a default, and safely disable the stock launcher. |
+| **Launcher** | Install supported launchers, request a default, and explicitly confirm a guarded stock-launcher disable where the firmware permits it. |
 | **App List** | Per-app Disable / Enable / Uninstall, or install via the Play Store. |
 | **Optimize** | The debloat wizard — review each app's recommended action with its RAM usage, untick anything you want to keep, then **Run**. Reversible via Restore. |
 | **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough. |
@@ -229,8 +231,8 @@ Make sure you're on **PowerShell 7**, not Windows PowerShell 5.x (blue icon). Ch
 |---------|----------|
 | Device not found | Enable Network Debugging, try Scan Network, check TV for auth prompt |
 | Device shows UNAUTHORIZED | Accept the "Allow USB debugging?" prompt on your TV |
-| Launcher won't switch | Use the Launcher Wizard, press Home after disabling stock |
-| Something broke | Use Recovery to re-enable all disabled packages |
+| Launcher won't switch | Review the Launcher Wizard diagnostics and actual Home readback. Some firmware rejects changing its protected stock launcher; retrying takeover does not remove that restriction. |
+| Something broke | Recovery can request re-enabling disabled packages; check reported failures because firmware may refuse changes. |
 | Wrong device type | Check Profile view; detection uses brand/model/packages |
 | Scan finds nothing (macOS/Linux) | Ensure Network Debugging is on; try Connect IP |
 | Colors hard to read | Try `-LightMode` or `-DarkMode` |
@@ -256,8 +258,8 @@ Make sure you're on **PowerShell 7**, not Windows PowerShell 5.x (blue icon). Ch
 
 ## Safety
 
-- **Disable over uninstall** — changes are reversible (Restore / Optimize-again).
-- **Recovery** — emergency re-enable of every disabled package.
+- **Disable over uninstall** — re-enabling a disabled app depends on firmware permissions; uninstalling may remove data that Restore cannot recover.
+- **Recovery** — requests emergency re-enabling of disabled packages and reports failures.
 - A **do-not-disable list** guards system-critical packages from every code path.
 
 **Use at your own risk.** Modifying system apps carries some risk, but this tool prioritizes safe, reversible changes.
