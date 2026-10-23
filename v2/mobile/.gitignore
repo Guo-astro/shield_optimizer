@@ -12,3 +12,7 @@ key.properties
 *.keystore
 *.p12
 __pycache__/
+
+# Screenshot capture output — regenerable via `npm run screenshots`
+/screenshots/frames/
+/screenshots/contact-sheet.png

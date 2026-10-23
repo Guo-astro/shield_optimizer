@@ -516,8 +516,9 @@ function demoShellOutput(command: string): string {
 }
 
 // Map of command name → handler. Unlisted commands fall through to a benign
-// success so a stray click during capture never throws.
-function handle(cmd: string, args: Record<string, unknown>): unknown {
+// success so a stray click during capture never throws. Exported so the mobile
+// app's demo layer answers the commands both apps share from the same fixtures.
+export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
