@@ -35,7 +35,8 @@ Upgrade with `brew upgrade --cask shield-optimizer`, or let the app update itsel
 
 ### Any platform: download an installer
 
-Get the latest from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases/latest):
+Get an installer from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases).
+Choose the newest stable `v2-*` desktop release; `v0.*` releases contain the legacy PowerShell script:
 
 | OS | File |
 |----|------|
@@ -103,8 +104,8 @@ own, it shows up when the device list refreshes.
 
 ## Safety
 
-- **Disable, don't uninstall.** Disabled apps can be re-enabled. Uninstalling can remove data that
-  Restore can't bring back.
+- **Disable, don't uninstall.** Disabled apps can usually be re-enabled, but firmware permissions
+  may prevent it. Uninstalling can remove data that Restore can't bring back.
 - A curated **do-not-disable list** blocks disables that would break the device, in every curated
   action: Optimize, App List, the Launcher wizard and Snapshot apply.
 - **Recovery** asks the TV to re-enable every disabled package and reports any it refused.
