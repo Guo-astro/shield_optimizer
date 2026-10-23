@@ -21,6 +21,15 @@ TVs on your network, and updates itself. You don't need a terminal or any script
 > cleanup over Wi-Fi, with no computer involved. It's in testing now.
 > [Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
 
+<details>
+<summary>Preview the phone app</summary>
+
+<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+Demo data, not a live device. See [`v2/mobile/`](v2/mobile/README.md).
+
+</details>
+
 ## Install
 
 ### macOS: Homebrew (easiest)
