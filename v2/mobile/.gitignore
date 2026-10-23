@@ -13,6 +13,6 @@ key.properties
 *.p12
 __pycache__/
 
-# Screenshot capture output — regenerable via `npm run screenshots`
+# Screenshot frames — regenerable via `npm run screenshots`. gallery.gif and
+# contact-sheet.png are committed.
 /screenshots/frames/
-/screenshots/contact-sheet.png

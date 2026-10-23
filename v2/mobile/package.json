@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "subset-icons": "python3 scripts/subset-material-symbols.py",
     "tauri": "tauri",
-    "screenshots": "node screenshots/capture.mjs"
+    "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh"
   },
   "license": "UNLICENSED",
   "dependencies": {

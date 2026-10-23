@@ -40,6 +40,15 @@ The first time the tool connects, your TV shows an **"Allow debugging?"** prompt
 
 </details>
 
+<details>
+<summary>Phone companion (in development, not yet released)</summary>
+
+<img alt="ATV Optimizer phone app walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+An Android phone app that drives the TV over wireless ADB with no PC. Demo data, not a live device. See [`v2/mobile/`](v2/mobile/README.md).
+
+</details>
+
 A native desktop app — no PowerShell, no terminal, no scripting. It bundles its own `adb` (auto-downloaded on first launch), scans your network for devices on startup, and walks you through everything with a GUI. Dark and light themes with a Light / Dark / Auto toggle.
 
 > **Renamed:** the desktop app is now **ATV Optimizer** (it was Shield Optimizer). Same app, same settings, same update channel — only the name and icon changed. The Homebrew tap and cask are still `bryanroscoe/shield-optimizer` / `shield-optimizer`, so `brew upgrade` keeps working. macOS users who installed from the `.dmg` will still have the old `Shield Optimizer.app` until they reinstall; it is safe to drag to the Trash afterwards.
