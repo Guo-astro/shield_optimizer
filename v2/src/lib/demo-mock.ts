@@ -618,6 +618,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         { package: "com.teamsmart.videomanager.tv", system: false, enabled: true, name: "SmartTube", description: "An open-source YouTube client for Android TV." },
         { package: "ca.devmesh.overseerrtv", system: false, enabled: true, name: "Overseerr (TV)", description: "Browse and request movies and shows from an Overseerr server." },
         { package: "org.fdroid.fdroid", system: false, enabled: true, name: "F-Droid", description: "A catalog of free and open-source Android apps." },
+        { package: "com.spocky.projengmenu", system: false, enabled: true, name: "Projectivy Launcher", description: "A customizable third-party Home screen for Android TV." },
         { package: "com.android.vending", system: true, enabled: true, name: "Google Play Store", description: "Google's app store." },
         { package: "com.android.providers.media", system: true, enabled: true, name: "Media Storage", description: "Indexes photos, music and video for apps." },
         { package: "com.nvidia.ota", system: true, enabled: false, name: null },
@@ -724,6 +725,14 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
               ? "Reviewed and rated advanced — for people who already know what this does."
               : "Reviewed and rated medium risk — removable, but you may notice it go.";
         return { kind: "caution", reason: `${lead}${tail}`, source: "reviewed_catalog" };
+      }
+      if (launchers.some((l) => !l.stock && l.entry.package === pkg)) {
+        return {
+          kind: "caution",
+          reason:
+            "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.",
+          source: "launcher_list",
+        };
       }
       return {
         kind: "unknown",
@@ -902,6 +911,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return { state: "waiting" };
     case "local_address_for":
       return "192.168.1.10";
+    case "reprompt_device":
+      return {
+        ok: true,
+        status: "unauthorized",
+        message:
+          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+      };
     case "forget_device":
       return {
         ok: true,

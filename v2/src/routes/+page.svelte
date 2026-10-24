@@ -331,6 +331,13 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
+    if (d.status === "unauthorized" && d.connection === "network") {
+      items.push({
+        label: "Ask again on the TV",
+        disabled: repromptBusy === d.serial,
+        run: () => repromptDevice(d),
+      });
+    }
     if (d.connection === "network") {
       items.push({
         label: "Forget",
@@ -619,6 +626,30 @@
   }
 
   let forgetBusy = $state<string | null>(null);
+  let repromptBusy = $state<string | null>(null);
+
+  const QUIT_ADB_TIP =
+    "Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or " +
+    "any other tool using adb is disconnected too. It is left running while this app is still " +
+    "using it, such as an open Remote, and when the app restarts for an update.";
+
+  /// Drops this one TV's connection and dials it again, which is what makes
+  /// Android show the debugging prompt a second time. Nothing else is
+  /// redialled, so no other TV prompts.
+  async function repromptDevice(d: Device) {
+    repromptBusy = d.serial;
+    connectMessage = "";
+    connectDetail = "";
+    try {
+      const r = await api.repromptDevice(d.serial);
+      connectMessage = r.message;
+      await refresh();
+    } catch (e) {
+      connectMessage = `Could not ask ${d.name} again: ${e}`;
+    } finally {
+      repromptBusy = null;
+    }
+  }
 
   /// Drop a network transport so the row stops appearing. Only offered for
   /// network devices: `adb disconnect` is the only thing "forget" can mean
@@ -739,15 +770,17 @@
   <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
-  <label class="quit-toggle" title="Run adb kill-server when this app quits">
+  <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
     <input
       type="checkbox"
+      aria-describedby="quit-adb-tip"
       checked={stopOnQuit.setting?.enabled ?? false}
       indeterminate={stopOnQuit.setting === null}
       disabled={stopOnQuit.setting === null}
       onclick={clickStopOnQuit}
     />
     Stop ADB when quitting
+    <span id="quit-adb-tip" hidden>{QUIT_ADB_TIP}</span>
     {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
       <span class="quit-checking">checking…</span>
     {/if}
@@ -774,13 +807,6 @@
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
-  {/if}
-  {#if stopOnQuit.setting?.enabled}
-    <p class="connect-message plain muted quit-warning">
-      Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or any
-      other tool using adb is disconnected too. It is left running while this app is still using it,
-      such as an open Remote, and when the app restarts for an update.
-    </p>
   {/if}
   {#if stopOnQuit.error}
     <p class="connect-message muted quit-error">
@@ -1059,7 +1085,7 @@
                   <ol class="small unauthorized-fallback">
                     <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
                     {#if d.connection === "network"}
-                      <li>Click <strong>Forget</strong> here, then Add by IP again; the prompt reappears.</li>
+                      <li>Click <strong>Ask again</strong>; this TV, and only this one, shows the prompt again.</li>
                     {:else}
                       <li>Unplug the cable and plug it back in; the prompt reappears.</li>
                     {/if}
@@ -1101,6 +1127,16 @@
                   data-tip="Open the tools on this device even though it is not an Android TV"
                 >
                   Open anyway
+                </button>
+              {/if}
+              {#if d.status === "unauthorized" && d.connection === "network"}
+                <button
+                  class="row-action primary"
+                  onclick={() => repromptDevice(d)}
+                  disabled={repromptBusy === d.serial}
+                  data-tip="Reconnects this TV so it shows the debugging prompt again · no other TV is touched"
+                >
+                  {repromptBusy === d.serial ? "Asking…" : "Ask again"}
                 </button>
               {/if}
               <button
