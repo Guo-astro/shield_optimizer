@@ -1,6 +1,6 @@
 # v2 — current state
 
-v2 is a shipping desktop app. Latest **published** version: **2.3.0** (2026-09-30).
+v2 is a shipping desktop app. Latest **published** version: **2.4.0** (2026-10-23).
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
@@ -8,11 +8,10 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-`v2/CHANGELOG.md` has a prepared `v2-2.3.1` section (the Setup Wraith fixes #122/#157/#158,
-#97, #98, #100, #129 and the rest listed there) that has not been tagged, plus an `Unreleased`
-section above it (the Logs tab, Stop ADB when quitting, and fixes). The next tag waits on the
-owner's go. Before tagging, run the physical script in
-[`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.
+Nothing yet. 2.3.1 was prepared but never tagged; its notes shipped in 2.4.0. Add an
+`## Unreleased` section to `v2/CHANGELOG.md` for the next change. Before tagging, run the
+physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
+`npm run e2e`.
 
 ## Things the next reader needs that the code does not say
 
